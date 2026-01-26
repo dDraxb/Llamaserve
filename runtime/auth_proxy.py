@@ -241,37 +241,46 @@ async def proxy(path: str, request: Request):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
     start_time = time.monotonic()
-    async with httpx.AsyncClient(timeout=None) as client:
-        async with client.stream(
+    client = httpx.AsyncClient(timeout=None)
+    try:
+        resp = await client.request(
             request.method,
             url,
             params=params,
             headers=headers,
             content=body,
-        ) as resp:
-            response_bytes = 0
+            stream=True,
+        )
+    except httpx.RequestError:
+        await client.aclose()
+        _log_request(username, f"/{path}", 502, request_bytes=request_bytes)
+        raise HTTPException(status_code=502, detail="Upstream connection failed")
 
-            async def _stream():
-                nonlocal response_bytes
-                try:
-                    async for chunk in resp.aiter_bytes():
-                        response_bytes += len(chunk)
-                        yield chunk
-                finally:
-                    duration_ms = int((time.monotonic() - start_time) * 1000)
-                    _log_request(
-                        username,
-                        f"/{path}",
-                        resp.status_code,
-                        duration_ms=duration_ms,
-                        request_bytes=request_bytes,
-                        response_bytes=response_bytes,
-                    )
+    response_bytes = 0
+    resp_headers = _filter_headers(dict(resp.headers))
 
-            resp_headers = _filter_headers(dict(resp.headers))
-            return StreamingResponse(
-                _stream(),
-                status_code=resp.status_code,
-                headers=resp_headers,
-                media_type=resp.headers.get("content-type"),
+    async def _stream():
+        nonlocal response_bytes
+        try:
+            async for chunk in resp.aiter_bytes():
+                response_bytes += len(chunk)
+                yield chunk
+        finally:
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            _log_request(
+                username,
+                f"/{path}",
+                resp.status_code,
+                duration_ms=duration_ms,
+                request_bytes=request_bytes,
+                response_bytes=response_bytes,
             )
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        _stream(),
+        status_code=resp.status_code,
+        headers=resp_headers,
+        media_type=resp.headers.get("content-type"),
+    )

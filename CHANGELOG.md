@@ -42,3 +42,4 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - User CLI now loads `.env` and ignores placeholder DB URLs.
 - Auth proxy now loads `.env`/`runtime/config.env` and builds DB URL from `POSTGRES_AUTH_*`.
 - Proxy and CLI now use `.env` only for DB config.
+- Proxy loads `runtime/config.env` for backend settings while still using `.env` for DB.

@@ -48,6 +48,7 @@ def _load_env_file(path: Path) -> None:
             os.environ[key] = value
 
 
+_load_env_file(ROOT_DIR / "runtime" / "config.env")
 _load_env_file(ROOT_DIR / ".env")
 
 BACKEND_URL = os.getenv("LLAMA_SERVER_BACKEND_URL", "http://127.0.0.1:8000")

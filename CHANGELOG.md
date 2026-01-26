@@ -1,0 +1,19 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on Keep a Changelog, and this project follows semantic versioning.
+
+## [Unreleased]
+
+## [2026-01-26]
+### Added
+- Full CLI flow in `console.sh` for `start`, `stop`, `restart`, and `status`.
+- Interactive model selection and optional model argument support.
+- Model tracking file to improve status output.
+- API key enforcement before server startup.
+
+### Changed
+- Fixed shebang placement in `console.sh` and `runtime/install.sh`.
+- Completed fallback model download in `runtime/install.sh`.
+- Improved logging and PID handling for server lifecycle.

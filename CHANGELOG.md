@@ -17,3 +17,6 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Fixed shebang placement in `console.sh` and `runtime/install.sh`.
 - Completed fallback model download in `runtime/install.sh`.
 - Improved logging and PID handling for server lifecycle.
+
+### Fixed
+- Resolved `console.sh` syntax errors in the venv check and status output.

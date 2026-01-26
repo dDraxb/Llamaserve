@@ -102,7 +102,9 @@ print_status() {
   else
     echo "Server status: NOT RUNNING"
     if [[ -f "$LLAMA_SERVER_MODEL_FILE" ]]; then
-      echo "  Last model: $(cat "$LLAMA_SERVER_MODEL_FILE")"
+      local last_model
+      last_model="$(cat "$LLAMA_SERVER_MODEL_FILE")"
+      echo "  Last model: $last_model"
     fi
   fi
 }
@@ -123,6 +125,7 @@ PY
     err "llama_cpp not importable in venv. Re-run: $RUNTIME_DIR/install.sh"
     exit 1
   fi
+  }
 }
 
 ensure_at_least_one_model() {
@@ -228,21 +231,19 @@ start_server() {
   info "Port : $LLAMA_SERVER_PORT"
   info "Log  : $LOG_FILE"
 
-  local -a cmd=(
-    "$PYTHON_BIN" -m llama_cpp.server
-    --model "$model_path"
-    --host "$LLAMA_SERVER_HOST"
-    --port "$LLAMA_SERVER_PORT"
-    --n_ctx "$LLAMA_SERVER_DEFAULT_N_CTX"
-    --n_gpu_layers "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS"
-    --api-key "$LLAMA_SERVER_API_KEY"
-  )
-
-  "${cmd[@]}" >>"$LOG_FILE" 2>&1 &
+  "$PYTHON_BIN" -m llama_cpp.server \
+    --model "$model_path" \
+    --host "$LLAMA_SERVER_HOST" \
+    --port "$LLAMA_SERVER_PORT" \
+    --n_ctx "$LLAMA_SERVER_DEFAULT_N_CTX" \
+    --n_gpu_layers "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS" \
+    --api-key "$LLAMA_SERVER_API_KEY" >>"$LOG_FILE" 2>&1 &
   echo $! > "$LLAMA_SERVER_PID_FILE"
   echo "$model_path" > "$LLAMA_SERVER_MODEL_FILE"
 
-  info "Server started with PID $(cat "$LLAMA_SERVER_PID_FILE")"
+  local started_pid
+  started_pid="$(cat "$LLAMA_SERVER_PID_FILE")"
+  info "Server started with PID $started_pid"
 }
 
 stop_server() {

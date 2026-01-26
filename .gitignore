@@ -1,2 +1,4 @@
 
 .idea
+./runtime/.venv/
+./runtime/config.env

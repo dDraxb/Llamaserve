@@ -41,3 +41,4 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Install script now auto-starts Postgres via docker compose when available.
 - User CLI now loads `.env` and ignores placeholder DB URLs.
 - Auth proxy now loads `.env`/`runtime/config.env` and builds DB URL from `POSTGRES_AUTH_*`.
+- Proxy and CLI now use `.env` only for DB config.

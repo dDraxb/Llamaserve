@@ -78,8 +78,7 @@ LLAMA_SERVER_BACKEND_URL="http://127.0.0.1:8000"
 # Rate limiting (per user)
 LLAMA_PROXY_RATE_LIMIT="60"
 LLAMA_PROXY_RATE_WINDOW_SECONDS="60"
-# Example (docker-compose.yml):
-# LLAMA_SERVER_DATABASE_URL="postgresql://<user>:<pass>@localhost:5432/<db>"
+# Database config lives in .env via POSTGRES_AUTH_*
 
 # PID file for the running server
 LLAMA_SERVER_PID_FILE="\$LLAMA_SERVER_RUNTIME_DIR/llama_server.pid"

@@ -48,7 +48,6 @@ def _load_env_file(path: Path) -> None:
             os.environ[key] = value
 
 
-_load_env_file(ROOT_DIR / "runtime" / "config.env")
 _load_env_file(ROOT_DIR / ".env")
 
 BACKEND_URL = os.getenv("LLAMA_SERVER_BACKEND_URL", "http://127.0.0.1:8000")
@@ -59,9 +58,6 @@ RATE_LIMIT = int(os.getenv("LLAMA_PROXY_RATE_LIMIT", "60"))
 RATE_WINDOW_SECONDS = int(os.getenv("LLAMA_PROXY_RATE_WINDOW_SECONDS", "60"))
 
 def _get_db_url() -> Optional[str]:
-    db_url = os.getenv("LLAMA_SERVER_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if db_url and "<" not in db_url:
-        return db_url
     user = os.getenv("POSTGRES_AUTH_USER")
     password = os.getenv("POSTGRES_AUTH_PASSWORD")
     db = os.getenv("POSTGRES_AUTH_DB")
@@ -74,10 +70,7 @@ def _get_db_url() -> Optional[str]:
 
 DB_URL = _get_db_url()
 if not DB_URL:
-    raise RuntimeError(
-        "Missing DB URL. Set LLAMA_SERVER_DATABASE_URL or DATABASE_URL, "
-        "or POSTGRES_AUTH_* in .env."
-    )
+    raise RuntimeError("Missing DB config. Set POSTGRES_AUTH_* in .env.")
 
 app = FastAPI()
 db_pool: pool.SimpleConnectionPool

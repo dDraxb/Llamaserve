@@ -61,9 +61,9 @@ curl -s http://0.0.0.0:8000/v1/chat/completions \
 
 To support one API key per user, run the Postgres-backed auth proxy. It validates user keys and forwards to `llama_cpp.server`.
 
-Key env vars (in `runtime/config.env`):
-- `LLAMA_PROXY_ENABLED=1`
-- `LLAMA_SERVER_DATABASE_URL=postgresql://<user>:<pass>@localhost:5432/<db>`
+Key env vars:
+- `POSTGRES_AUTH_*` in `.env` (DB config)
+- `LLAMA_PROXY_ENABLED=1` in `runtime/config.env`
 - `LLAMA_SERVER_HOST=127.0.0.1` (keep backend private)
 - `LLAMA_PROXY_PORT=8001` (default)
 - `LLAMA_PROXY_RATE_LIMIT=60` (per user)

@@ -26,19 +26,17 @@ import psycopg2
 
 
 ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT / "runtime" / "config.env")
 load_dotenv(ROOT / ".env")
 
 
 def _get_db_url() -> str:
-    db_url = os.getenv("LLAMA_SERVER_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if db_url and "<" not in db_url:
-        return db_url
-    user = os.getenv("POSTGRES_AUTH_USER", "llama")
-    password = os.getenv("POSTGRES_AUTH_PASSWORD", "llama_pass")
-    db = os.getenv("POSTGRES_AUTH_DB", "llama_auth")
+    user = os.getenv("POSTGRES_AUTH_USER")
+    password = os.getenv("POSTGRES_AUTH_PASSWORD")
+    db = os.getenv("POSTGRES_AUTH_DB")
     host = os.getenv("POSTGRES_AUTH_HOST", "localhost")
     port = os.getenv("POSTGRES_AUTH_PORT", "5432")
+    if not user or not password or not db:
+        raise SystemExit("Missing POSTGRES_AUTH_* in .env")
     return f"postgresql://{user}:{password}@{host}:{port}/{db}"
 
 

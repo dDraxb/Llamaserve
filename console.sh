@@ -177,11 +177,31 @@ PY
   }
 }
 
+load_env_file() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  while IFS='=' read -r key value; do
+    [[ -z "$key" ]] && continue
+    [[ "$key" =~ ^# ]] && continue
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+    if [[ -z "${!key:-}" ]]; then
+      export "$key=$value"
+    fi
+  done < "$file"
+}
+
 ensure_db_url() {
-  if [[ -z "${LLAMA_SERVER_DATABASE_URL:-}" ]] && [[ -z "${DATABASE_URL:-}" ]]; then
-    err "Database URL not set. Set LLAMA_SERVER_DATABASE_URL or DATABASE_URL."
+  load_env_file "$ROOT_DIR/.env"
+  if [[ -z "${POSTGRES_AUTH_USER:-}" ]] || [[ -z "${POSTGRES_AUTH_PASSWORD:-}" ]] || [[ -z "${POSTGRES_AUTH_DB:-}" ]]; then
+    err "Database config not set. Provide POSTGRES_AUTH_USER/POSTGRES_AUTH_PASSWORD/POSTGRES_AUTH_DB in .env."
     exit 1
   fi
+  local host="${POSTGRES_AUTH_HOST:-localhost}"
+  local port="${POSTGRES_AUTH_PORT:-5432}"
+  export LLAMA_SERVER_DATABASE_URL="postgresql://${POSTGRES_AUTH_USER}:${POSTGRES_AUTH_PASSWORD}@${host}:${port}/${POSTGRES_AUTH_DB}"
 }
 
 ensure_at_least_one_model() {

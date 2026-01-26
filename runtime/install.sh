@@ -112,15 +112,18 @@ echo ">>> Attempting to download fallback TinyLlama 1.1B Chat (Q4_K_M GGUF) ..."
 echo ">>> Source: TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF (Hugging Face)"
 
 HFACE_CLI="$VENV_DIR/bin/huggingface-cli"
-if [[ ! -x "$HFACE_CLI" ]]; then
-  echo "ERROR: huggingface-cli not found in venv. Re-run install." >&2
-  exit 1
+if [[ -x "$HFACE_CLI" ]]; then
+  "$HFACE_CLI" download \
+    TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF \
+    TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf \
+    --local-dir "$MODELS_DIR" \
+    --local-dir-use-symlinks False
+else
+  "$VENV_DIR/bin/python" -m huggingface_hub.cli download \
+    TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF \
+    TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf \
+    --local-dir "$MODELS_DIR" \
+    --local-dir-use-symlinks False
 fi
-
-"$HFACE_CLI" download \
-  TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF \
-  TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf \
-  --local-dir "$MODELS_DIR" \
-  --local-dir-use-symlinks False
 
 echo ">>> Fallback model downloaded into: $MODELS_DIR"

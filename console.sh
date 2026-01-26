@@ -181,7 +181,7 @@ select_model_interactively() {
   if [[ "$model_count" -eq 1 ]]; then
     local only_model
     only_model="${models[0]}"
-    echo "Using only available model: $(basename "$only_model")"
+    echo "Using only available model: $(basename "$only_model")" >&2
     echo "$only_model"
     return 0
   fi

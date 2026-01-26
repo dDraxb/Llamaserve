@@ -136,6 +136,14 @@ ensure_at_least_one_model() {
   info "models/ directory is empty."
   info "Attempting to download fallback TinyLlama 1.1B Chat (Q4_K_M GGUF) ..."
   info "Source: TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF (Hugging Face)"
+  echo
+
+  if [[ -z "${HF_TOKEN:-}" ]] && [[ -t 0 ]]; then
+    read -r -p "Optional: enter HF_TOKEN for higher rate limits (leave blank to skip): " HF_TOKEN_INPUT
+    if [[ -n "$HF_TOKEN_INPUT" ]]; then
+      export HF_TOKEN="$HF_TOKEN_INPUT"
+    fi
+  fi
 
   if [[ -x "$HFACE_CLI" ]]; then
     "$HFACE_CLI" download \

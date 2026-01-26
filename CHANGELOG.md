@@ -25,3 +25,4 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Switched the fallback download to `hf_hub_download` when no CLI entrypoint exists.
 - Fixed fallback filename to match the repo file casing on Hugging Face.
 - Updated fallback GGUF filename to `tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf`.
+- Fixed model presence checks to ignore non-`.gguf` files (like `.cache`).

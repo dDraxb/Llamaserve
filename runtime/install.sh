@@ -102,7 +102,7 @@ echo
 # 3) Ensure we have at least one model (fallback)
 ###############################################################################
 
-if [[ -n "$(ls -A "$MODELS_DIR" 2>/dev/null || true)" ]]; then
+if ls "$MODELS_DIR"/*.gguf >/dev/null 2>&1; then
   echo ">>> Models already present in $MODELS_DIR"
   exit 0
 fi

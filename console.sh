@@ -129,7 +129,7 @@ PY
 }
 
 ensure_at_least_one_model() {
-  if [[ -n "$(ls -A "$LLAMA_SERVER_MODELS_DIR" 2>/dev/null || true)" ]]; then
+  if ls "$LLAMA_SERVER_MODELS_DIR"/*.gguf >/dev/null 2>&1; then
     return 0
   fi
 

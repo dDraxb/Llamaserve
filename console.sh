@@ -44,6 +44,10 @@ LLAMA_SERVER_API_KEY="${LLAMA_SERVER_API_KEY:-}"
 LLAMA_SERVER_PID_FILE="${LLAMA_SERVER_PID_FILE:-$RUNTIME_DIR/llama_server.pid}"
 LLAMA_SERVER_MODEL_FILE="${LLAMA_SERVER_MODEL_FILE:-$RUNTIME_DIR/llama_server.model}"
 LLAMA_SERVER_CUDA_VISIBLE_DEVICES="${LLAMA_SERVER_CUDA_VISIBLE_DEVICES:-}"
+LLAMA_PROXY_ENABLED="${LLAMA_PROXY_ENABLED:-0}"
+LLAMA_PROXY_HOST="${LLAMA_PROXY_HOST:-0.0.0.0}"
+LLAMA_PROXY_PORT="${LLAMA_PROXY_PORT:-8001}"
+LLAMA_PROXY_PID_FILE="${LLAMA_PROXY_PID_FILE:-$RUNTIME_DIR/llama_proxy.pid}"
 
 # Load config.env if present (overrides above)
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -56,6 +60,8 @@ LLAMA_SERVER_MODEL_FILE="${LLAMA_SERVER_MODEL_FILE:-$RUNTIME_DIR/llama_server.mo
 PYTHON_BIN="$LLAMA_SERVER_VENV/bin/python"
 HFACE_CLI="$LLAMA_SERVER_VENV/bin/huggingface-cli"
 LOG_FILE="$LLAMA_SERVER_LOG_DIR/llama_server.log"
+PROXY_LOG_FILE="$LLAMA_SERVER_LOG_DIR/llama_proxy.log"
+LLAMA_SERVER_BACKEND_URL="${LLAMA_SERVER_BACKEND_URL:-http://127.0.0.1:$LLAMA_SERVER_PORT}"
 
 ###############################################################################
 # Helpers
@@ -77,6 +83,21 @@ is_server_running() {
       return 0
     else
       rm -f "$LLAMA_SERVER_PID_FILE"
+      return 1
+    fi
+  else
+    return 1
+  fi
+}
+
+is_proxy_running() {
+  if [[ -f "$LLAMA_PROXY_PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$LLAMA_PROXY_PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      return 0
+    else
+      rm -f "$LLAMA_PROXY_PID_FILE"
       return 1
     fi
   else
@@ -107,6 +128,21 @@ print_status() {
       echo "  Last model: $last_model"
     fi
   fi
+
+  if [[ "$LLAMA_PROXY_ENABLED" == "1" ]] || is_proxy_running; then
+    if is_proxy_running; then
+      local ppid
+      ppid="$(cat "$LLAMA_PROXY_PID_FILE")"
+      echo "Proxy status : RUNNING"
+      echo "  PID   : $ppid"
+      echo "  Host  : $LLAMA_PROXY_HOST"
+      echo "  Port  : $LLAMA_PROXY_PORT"
+      echo "  URL   : http://$LLAMA_PROXY_HOST:$LLAMA_PROXY_PORT/v1"
+      echo "  Log   : $PROXY_LOG_FILE"
+    else
+      echo "Proxy status : NOT RUNNING"
+    fi
+  fi
 }
 
 ensure_venv_and_deps() {
@@ -126,6 +162,26 @@ PY
     exit 1
   fi
   }
+}
+
+ensure_proxy_deps() {
+  "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1 || {
+import importlib
+for m in ("fastapi", "uvicorn", "httpx", "psycopg2"):
+    importlib.import_module(m)
+PY
+  if [[ $? -ne 0 ]]; then
+    err "Proxy deps missing in venv. Re-run: $RUNTIME_DIR/install.sh"
+    exit 1
+  fi
+  }
+}
+
+ensure_db_url() {
+  if [[ -z "${LLAMA_SERVER_DATABASE_URL:-}" ]] && [[ -z "${DATABASE_URL:-}" ]]; then
+    err "Database URL not set. Set LLAMA_SERVER_DATABASE_URL or DATABASE_URL."
+    exit 1
+  fi
 }
 
 ensure_at_least_one_model() {
@@ -268,6 +324,38 @@ start_server() {
   local started_pid
   started_pid="$(cat "$LLAMA_SERVER_PID_FILE")"
   info "Server started with PID $started_pid"
+
+  if [[ "$LLAMA_PROXY_ENABLED" == "1" ]]; then
+    start_proxy
+  fi
+}
+
+start_proxy() {
+  if is_proxy_running; then
+    err "Proxy already running. Use: $0 restart-proxy"
+    exit 1
+  fi
+
+  ensure_venv_and_deps
+  ensure_proxy_deps
+  ensure_db_url
+  mkdir -p "$LLAMA_SERVER_LOG_DIR"
+
+  export LLAMA_SERVER_BACKEND_URL="${LLAMA_SERVER_BACKEND_URL:-http://127.0.0.1:$LLAMA_SERVER_PORT}"
+
+  info "Starting auth proxy..."
+  info "Backend: $LLAMA_SERVER_BACKEND_URL"
+  info "Host   : $LLAMA_PROXY_HOST"
+  info "Port   : $LLAMA_PROXY_PORT"
+  info "Log    : $PROXY_LOG_FILE"
+
+  "$PYTHON_BIN" -m uvicorn auth_proxy:app \
+    --app-dir "$RUNTIME_DIR" \
+    --host "$LLAMA_PROXY_HOST" \
+    --port "$LLAMA_PROXY_PORT" >>"$PROXY_LOG_FILE" 2>&1 &
+
+  echo $! > "$LLAMA_PROXY_PID_FILE"
+  info "Proxy started with PID $(cat "$LLAMA_PROXY_PID_FILE")"
 }
 
 stop_server() {
@@ -294,11 +382,45 @@ stop_server() {
   err "Server did not stop gracefully; sending SIGKILL."
   kill -9 "$pid" 2>/dev/null || true
   rm -f "$LLAMA_SERVER_PID_FILE"
+  if [[ "$LLAMA_PROXY_ENABLED" == "1" ]]; then
+    stop_proxy
+  fi
+}
+
+stop_proxy() {
+  if ! is_proxy_running; then
+    info "Proxy is not running."
+    return 0
+  fi
+
+  local pid
+  pid="$(cat "$LLAMA_PROXY_PID_FILE")"
+  info "Stopping proxy (PID $pid)..."
+  kill "$pid" 2>/dev/null || true
+
+  local i
+  for i in {1..20}; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$LLAMA_PROXY_PID_FILE"
+      info "Proxy stopped."
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  err "Proxy did not stop gracefully; sending SIGKILL."
+  kill -9 "$pid" 2>/dev/null || true
+  rm -f "$LLAMA_PROXY_PID_FILE"
 }
 
 restart_server() {
   stop_server
   start_server "${1:-}"
+}
+
+restart_proxy() {
+  stop_proxy
+  start_proxy
 }
 
 usage() {
@@ -310,6 +432,9 @@ Commands:
   restart [model]  Restart server (optional model name/path)
   stop             Stop server
   status           Show server status
+  start-proxy      Start auth proxy
+  restart-proxy    Restart auth proxy
+  stop-proxy       Stop auth proxy
 EOF
 }
 
@@ -329,6 +454,15 @@ main() {
       ;;
     status)
       print_status
+      ;;
+    start-proxy)
+      start_proxy
+      ;;
+    restart-proxy)
+      restart_proxy
+      ;;
+    stop-proxy)
+      stop_proxy
       ;;
     ""|help|-h|--help)
       usage

@@ -33,3 +33,47 @@ From the perspective of this file (`agents.md`), the project root looks like:
       llama_server.log
   models/
     *.gguf          # one or more GGUF LLM model files (downloaded or copied here)
+
+---
+
+## Usage (Quick Test)
+
+1) List models:
+```bash
+curl -s http://0.0.0.0:8000/v1/models \
+  -H "Authorization: Bearer <API_KEY>"
+```
+
+2) Chat completion:
+```bash
+curl -s http://0.0.0.0:8000/v1/chat/completions \
+  -H "Authorization: Bearer <API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+    "messages": [{"role": "user", "content": "Say hello in one sentence."}]
+  }'
+```
+
+---
+
+## Multi-user Auth (Proxy)
+
+To support one API key per user, run the Postgres-backed auth proxy. It validates user keys and forwards to `llama_cpp.server`.
+
+Key env vars (in `runtime/config.env`):
+- `LLAMA_PROXY_ENABLED=1`
+- `LLAMA_SERVER_DATABASE_URL=postgresql://user:pass@host:5432/db`
+- `LLAMA_SERVER_HOST=127.0.0.1` (keep backend private)
+- `LLAMA_PROXY_PORT=8001` (default)
+- `LLAMA_PROXY_RATE_LIMIT=60` (per user)
+- `LLAMA_PROXY_RATE_WINDOW_SECONDS=60`
+
+User CLI (see README for details):
+```bash
+./bin/bootstrap_user_cli.sh
+./bin/user_management_cli.sh init-db
+./bin/user_management_cli.sh create-user --username alice
+```
+
+Proxy logging table: `llama_requests` (username, path, status_code, duration_ms, request_bytes, response_bytes, created_at).

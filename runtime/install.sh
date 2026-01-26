@@ -70,6 +70,17 @@ LLAMA_SERVER_DEFAULT_N_GPU_LAYERS=-1
 # API key required for all requests (Authorization: Bearer <key>)
 LLAMA_SERVER_API_KEY="$API_KEY_GENERATED"
 
+# Auth proxy (optional)
+LLAMA_PROXY_ENABLED="0"
+LLAMA_PROXY_HOST="0.0.0.0"
+LLAMA_PROXY_PORT="8001"
+LLAMA_SERVER_BACKEND_URL="http://127.0.0.1:8000"
+# Rate limiting (per user)
+LLAMA_PROXY_RATE_LIMIT="60"
+LLAMA_PROXY_RATE_WINDOW_SECONDS="60"
+# Example: postgresql://user:pass@localhost:5432/vectordb
+# LLAMA_SERVER_DATABASE_URL=""
+
 # PID file for the running server
 LLAMA_SERVER_PID_FILE="\$LLAMA_SERVER_RUNTIME_DIR/llama_server.pid"
 
@@ -94,7 +105,7 @@ fi
 
 echo ">>> Upgrading pip and installing dependencies inside venv"
 "$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install "llama-cpp-python[server]" "huggingface_hub"
+"$VENV_DIR/bin/pip" install "llama-cpp-python[server]" "huggingface_hub" "psycopg2-binary"
 
 echo
 

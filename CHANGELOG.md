@@ -30,3 +30,7 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Auto-selects the only available GGUF model instead of prompting without a list.
 - Fixed llama server flag name to `--api_key` to match `llama_cpp.server` CLI.
 - Fixed single-model auto-select message contaminating the model path.
+- Added `README.md` and documented test curl commands in both README and `agents.md`.
+- Added Postgres-backed auth proxy with per-user API keys and a user management CLI.
+- Added per-user rate limiting and request logging to the proxy.
+- Expanded request logging with latency and byte counts.

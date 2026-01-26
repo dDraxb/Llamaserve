@@ -21,3 +21,4 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 ### Fixed
 - Resolved `console.sh` syntax errors in the venv check and status output.
 - Added a `huggingface_hub` CLI fallback when `huggingface-cli` is missing.
+- Corrected the fallback module invocation for Hugging Face CLI in venv.

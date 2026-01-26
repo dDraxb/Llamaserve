@@ -119,7 +119,7 @@ if [[ -x "$HFACE_CLI" ]]; then
     --local-dir "$MODELS_DIR" \
     --local-dir-use-symlinks False
 else
-  "$VENV_DIR/bin/python" -m huggingface_hub.cli download \
+  "$VENV_DIR/bin/python" -m huggingface_hub.commands.huggingface_cli download \
     TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF \
     TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf \
     --local-dir "$MODELS_DIR" \

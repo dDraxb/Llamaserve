@@ -144,7 +144,7 @@ ensure_at_least_one_model() {
       --local-dir "$LLAMA_SERVER_MODELS_DIR" \
       --local-dir-use-symlinks False
   else
-    "$PYTHON_BIN" -m huggingface_hub.cli download \
+    "$PYTHON_BIN" -m huggingface_hub.commands.huggingface_cli download \
       TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF \
       TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf \
       --local-dir "$LLAMA_SERVER_MODELS_DIR" \

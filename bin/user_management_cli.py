@@ -27,15 +27,16 @@ import psycopg2
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / "runtime" / "config.env")
+load_dotenv(ROOT / ".env")
 
 
 def _get_db_url() -> str:
     db_url = os.getenv("LLAMA_SERVER_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if db_url:
+    if db_url and "<" not in db_url:
         return db_url
-    user = os.getenv("POSTGRES_AUTH_USER", "user")
-    password = os.getenv("POSTGRES_AUTH_PASSWORD", "pass")
-    db = os.getenv("POSTGRES_AUTH_DB", "vectordb")
+    user = os.getenv("POSTGRES_AUTH_USER", "llama")
+    password = os.getenv("POSTGRES_AUTH_PASSWORD", "llama_pass")
+    db = os.getenv("POSTGRES_AUTH_DB", "llama_auth")
     host = os.getenv("POSTGRES_AUTH_HOST", "localhost")
     port = os.getenv("POSTGRES_AUTH_PORT", "5432")
     return f"postgresql://{user}:{password}@{host}:{port}/{db}"

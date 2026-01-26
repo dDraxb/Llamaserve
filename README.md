@@ -56,7 +56,7 @@ curl -s http://0.0.0.0:8000/v1/chat/completions \
 
 `llama_cpp.server` only supports a single API key. To support **one key per user**, run the auth proxy.
 
-1) Configure DB and enable proxy in `runtime/config.env`:
+1) Configure DB and enable proxy in `runtime/config.env` (or leave blank to use `.env` with `POSTGRES_AUTH_*`):
 ```bash
 LLAMA_PROXY_ENABLED="1"
 LLAMA_SERVER_DATABASE_URL="postgresql://<user>:<pass>@localhost:5432/<db>"

@@ -178,6 +178,14 @@ select_model_interactively() {
     exit 1
   fi
 
+  if [[ "$model_count" -eq 1 ]]; then
+    local only_model
+    only_model="${models[0]}"
+    echo "Using only available model: $(basename "$only_model")"
+    echo "$only_model"
+    return 0
+  fi
+
   echo "Available models:"
   local i
   for i in "${!models[@]}"; do

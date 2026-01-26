@@ -9,6 +9,19 @@ Thin wrapper around `llama_cpp.server` that runs **one GGUF model** and exposes 
 ./console.sh start
 ```
 
+## Add models (GGUF only)
+
+Models must be **GGUF** files placed in `models/`.
+
+Example (Hugging Face CLI using `hf`):
+```bash
+HF_TOKEN=INSERT_token \
+  hf download bartowski/openai_gpt-oss-20b-GGUF \
+    --include "openai_gpt-oss-20b-Q4_K_M.gguf" \
+    --local-dir models/ \
+    --local-dir-use-symlinks False
+```
+
 ## API key
 
 The API key is stored in `runtime/config.env` as `LLAMA_SERVER_API_KEY`.

@@ -34,3 +34,4 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Added Postgres-backed auth proxy with per-user API keys and a user management CLI.
 - Added per-user rate limiting and request logging to the proxy.
 - Expanded request logging with latency and byte counts.
+- Documented GGUF-only model download example using `hf` CLI.

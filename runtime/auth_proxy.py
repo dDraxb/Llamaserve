@@ -2,6 +2,7 @@
 import hashlib
 import os
 import time
+from pathlib import Path
 from typing import Dict, Optional
 
 import httpx
@@ -30,16 +31,53 @@ def _env(name: str, default: Optional[str] = None) -> str:
     return value
 
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file(ROOT_DIR / "runtime" / "config.env")
+_load_env_file(ROOT_DIR / ".env")
+
 BACKEND_URL = os.getenv("LLAMA_SERVER_BACKEND_URL", "http://127.0.0.1:8000")
 BACKEND_API_KEY = os.getenv("LLAMA_SERVER_API_KEY", "")
-DB_URL = os.getenv("LLAMA_SERVER_DATABASE_URL") or os.getenv("DATABASE_URL")
 USERS_TABLE = os.getenv("LLAMA_SERVER_USERS_TABLE", "llama_users")
 REQUESTS_TABLE = os.getenv("LLAMA_SERVER_REQUESTS_TABLE", "llama_requests")
 RATE_LIMIT = int(os.getenv("LLAMA_PROXY_RATE_LIMIT", "60"))
 RATE_WINDOW_SECONDS = int(os.getenv("LLAMA_PROXY_RATE_WINDOW_SECONDS", "60"))
 
+def _get_db_url() -> Optional[str]:
+    db_url = os.getenv("LLAMA_SERVER_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if db_url and "<" not in db_url:
+        return db_url
+    user = os.getenv("POSTGRES_AUTH_USER")
+    password = os.getenv("POSTGRES_AUTH_PASSWORD")
+    db = os.getenv("POSTGRES_AUTH_DB")
+    host = os.getenv("POSTGRES_AUTH_HOST", "localhost")
+    port = os.getenv("POSTGRES_AUTH_PORT", "5432")
+    if user and password and db:
+        return f"postgresql://{user}:{password}@{host}:{port}/{db}"
+    return None
+
+
+DB_URL = _get_db_url()
 if not DB_URL:
-    raise RuntimeError("Missing DB URL. Set LLAMA_SERVER_DATABASE_URL or DATABASE_URL.")
+    raise RuntimeError(
+        "Missing DB URL. Set LLAMA_SERVER_DATABASE_URL or DATABASE_URL, "
+        "or POSTGRES_AUTH_* in .env."
+    )
 
 app = FastAPI()
 db_pool: pool.SimpleConnectionPool

@@ -44,3 +44,4 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Proxy and CLI now use `.env` only for DB config.
 - Proxy loads `runtime/config.env` for backend settings while still using `.env` for DB.
 - Fixed proxy streaming to avoid `httpx.StreamClosed` errors.
+- Fixed httpx streaming call for older httpx versions.

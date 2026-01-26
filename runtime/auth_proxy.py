@@ -243,12 +243,14 @@ async def proxy(path: str, request: Request):
     start_time = time.monotonic()
     client = httpx.AsyncClient(timeout=None)
     try:
-        resp = await client.request(
-            request.method,
-            url,
-            params=params,
-            headers=headers,
-            content=body,
+        resp = await client.send(
+            client.build_request(
+                request.method,
+                url,
+                params=params,
+                headers=headers,
+                content=body,
+            ),
             stream=True,
         )
     except httpx.RequestError:

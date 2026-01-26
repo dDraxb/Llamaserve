@@ -59,10 +59,18 @@ curl -s http://0.0.0.0:8000/v1/chat/completions \
 1) Configure DB and enable proxy in `runtime/config.env`:
 ```bash
 LLAMA_PROXY_ENABLED="1"
-LLAMA_SERVER_DATABASE_URL="postgresql://user:pass@localhost:5432/vectordb"
+LLAMA_SERVER_DATABASE_URL="postgresql://<user>:<pass>@localhost:5432/<db>"
 LLAMA_SERVER_HOST="127.0.0.1"
 LLAMA_SERVER_BACKEND_URL="http://127.0.0.1:8000"
 ```
+
+If you want a local Postgres, use the included compose file and set the URL in `runtime/config.env`:
+```bash
+docker compose up -d postgres
+```
+
+Defaults for local Postgres are in `.env.example`. Copy it to `.env` and adjust as needed.
+The compose file reads `POSTGRES_AUTH_*` variables.
 
 2) Bootstrap the user CLI and create users:
 ```bash

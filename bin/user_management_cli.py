@@ -33,11 +33,11 @@ def _get_db_url() -> str:
     db_url = os.getenv("LLAMA_SERVER_DATABASE_URL") or os.getenv("DATABASE_URL")
     if db_url:
         return db_url
-    user = os.getenv("POSTGRES_USER", "user")
-    password = os.getenv("POSTGRES_PASSWORD", "pass")
-    db = os.getenv("POSTGRES_DB", "vectordb")
-    host = os.getenv("POSTGRES_HOST", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
+    user = os.getenv("POSTGRES_AUTH_USER", "user")
+    password = os.getenv("POSTGRES_AUTH_PASSWORD", "pass")
+    db = os.getenv("POSTGRES_AUTH_DB", "vectordb")
+    host = os.getenv("POSTGRES_AUTH_HOST", "localhost")
+    port = os.getenv("POSTGRES_AUTH_PORT", "5432")
     return f"postgresql://{user}:{password}@{host}:{port}/{db}"
 
 

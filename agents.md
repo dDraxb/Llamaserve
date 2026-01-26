@@ -63,7 +63,7 @@ To support one API key per user, run the Postgres-backed auth proxy. It validate
 
 Key env vars (in `runtime/config.env`):
 - `LLAMA_PROXY_ENABLED=1`
-- `LLAMA_SERVER_DATABASE_URL=postgresql://user:pass@host:5432/db`
+- `LLAMA_SERVER_DATABASE_URL=postgresql://<user>:<pass>@localhost:5432/<db>`
 - `LLAMA_SERVER_HOST=127.0.0.1` (keep backend private)
 - `LLAMA_PROXY_PORT=8001` (default)
 - `LLAMA_PROXY_RATE_LIMIT=60` (per user)

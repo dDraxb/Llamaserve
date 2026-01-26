@@ -35,3 +35,6 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Added per-user rate limiting and request logging to the proxy.
 - Expanded request logging with latency and byte counts.
 - Documented GGUF-only model download example using `hf` CLI.
+- Added docker-compose Postgres service for auth proxy storage.
+- Moved Postgres defaults to `.env.example` and parameterized `docker-compose.yml`.
+- Renamed Postgres env vars to `POSTGRES_AUTH_*` for clarity.

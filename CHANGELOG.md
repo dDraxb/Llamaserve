@@ -38,3 +38,4 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Added docker-compose Postgres service for auth proxy storage.
 - Moved Postgres defaults to `.env.example` and parameterized `docker-compose.yml`.
 - Renamed Postgres env vars to `POSTGRES_AUTH_*` for clarity.
+- Install script now auto-starts Postgres via docker compose when available.

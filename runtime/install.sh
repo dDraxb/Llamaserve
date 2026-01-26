@@ -96,6 +96,19 @@ else
 fi
 
 ###############################################################################
+# 1b) Start local Postgres (docker compose) if available
+###############################################################################
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  echo ">>> Starting Postgres via docker compose..."
+  docker compose -f "$ROOT_DIR/docker-compose.yml" up -d postgres
+  echo
+else
+  echo ">>> Docker compose not available; skipping Postgres startup."
+  echo ">>> You can start it manually with: docker compose up -d postgres"
+  echo
+fi
+
+###############################################################################
 # 2) Create venv + install Python deps
 ###############################################################################
 if [[ ! -d "$VENV_DIR" ]]; then

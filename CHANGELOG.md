@@ -23,3 +23,5 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Added a `huggingface_hub` CLI fallback when `huggingface-cli` is missing.
 - Corrected the fallback module invocation for Hugging Face CLI in venv.
 - Switched the fallback download to `hf_hub_download` when no CLI entrypoint exists.
+- Fixed fallback filename to match the repo file casing on Hugging Face.
+- Updated fallback GGUF filename to `tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf`.

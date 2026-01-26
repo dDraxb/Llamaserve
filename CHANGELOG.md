@@ -28,3 +28,4 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Fixed model presence checks to ignore non-`.gguf` files (like `.cache`).
 - Added optional interactive prompt for `HF_TOKEN` during fallback downloads.
 - Auto-selects the only available GGUF model instead of prompting without a list.
+- Fixed llama server flag name to `--api_key` to match `llama_cpp.server` CLI.

@@ -261,7 +261,7 @@ start_server() {
     --port "$LLAMA_SERVER_PORT" \
     --n_ctx "$LLAMA_SERVER_DEFAULT_N_CTX" \
     --n_gpu_layers "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS" \
-    --api-key "$LLAMA_SERVER_API_KEY" >>"$LOG_FILE" 2>&1 &
+    --api_key "$LLAMA_SERVER_API_KEY" >>"$LOG_FILE" 2>&1 &
   echo $! > "$LLAMA_SERVER_PID_FILE"
   echo "$model_path" > "$LLAMA_SERVER_MODEL_FILE"
 

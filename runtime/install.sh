@@ -119,11 +119,16 @@ if [[ -x "$HFACE_CLI" ]]; then
     --local-dir "$MODELS_DIR" \
     --local-dir-use-symlinks False
 else
-  "$VENV_DIR/bin/python" -m huggingface_hub.commands.huggingface_cli download \
-    TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF \
-    TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf \
-    --local-dir "$MODELS_DIR" \
-    --local-dir-use-symlinks False
+  "$VENV_DIR/bin/python" - <<PY
+from huggingface_hub import hf_hub_download
+
+hf_hub_download(
+    repo_id="TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+    filename="TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf",
+    local_dir=r"""$MODELS_DIR""",
+    local_dir_use_symlinks=False,
+)
+PY
 fi
 
 echo ">>> Fallback model downloaded into: $MODELS_DIR"

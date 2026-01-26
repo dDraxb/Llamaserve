@@ -144,11 +144,16 @@ ensure_at_least_one_model() {
       --local-dir "$LLAMA_SERVER_MODELS_DIR" \
       --local-dir-use-symlinks False
   else
-    "$PYTHON_BIN" -m huggingface_hub.commands.huggingface_cli download \
-      TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF \
-      TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf \
-      --local-dir "$LLAMA_SERVER_MODELS_DIR" \
-      --local-dir-use-symlinks False
+    "$PYTHON_BIN" - <<PY
+from huggingface_hub import hf_hub_download
+
+hf_hub_download(
+    repo_id="TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+    filename="TinyLlama-1.1B-Chat-v1.0.Q4_K_M.gguf",
+    local_dir=r"""$LLAMA_SERVER_MODELS_DIR""",
+    local_dir_use_symlinks=False,
+)
+PY
   fi
 
   info "Fallback model downloaded into: $LLAMA_SERVER_MODELS_DIR"

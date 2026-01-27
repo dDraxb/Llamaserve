@@ -262,10 +262,10 @@ select_model_interactively() {
     return 0
   fi
 
-  echo "Available models:"
+  echo "Available models:" >&2
   local i
   for i in "${!models[@]}"; do
-    printf "  [%d] %s\n" "$((i + 1))" "$(basename "${models[$i]}")"
+    printf "  [%d] %s\n" "$((i + 1))" "$(basename "${models[$i]}")" >&2
   done
 
   local choice
@@ -434,6 +434,9 @@ stop_proxy() {
 }
 
 restart_server() {
+  if [[ "$LLAMA_PROXY_ENABLED" == "1" ]]; then
+    stop_proxy
+  fi
   stop_server
   start_server "${1:-}"
 }

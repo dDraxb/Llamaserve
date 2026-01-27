@@ -47,3 +47,4 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Fixed httpx streaming call for older httpx versions.
 - Documented that conversation management is client-side.
 - Added OpenAI chat/completions parameter support table.
+- Fixed model selection output contaminating the model path and improved restart order with proxy enabled.

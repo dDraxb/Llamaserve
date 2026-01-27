@@ -77,3 +77,9 @@ User CLI (see README for details):
 ```
 
 Proxy logging table: `llama_requests` (username, path, status_code, duration_ms, request_bytes, response_bytes, created_at).
+
+Conversation management is client-side; include the relevant message history with each request.
+OpenAI compatibility is best-effort; optional parameters may be ignored or unsupported.
+OpenAI `/v1/completions` is a legacy API; use `/v1/chat/completions` where possible. citeturn0search0
+
+Supported chat parameters (llama-cpp-python API exposure): `model`, `messages`, `stream`, `temperature`, `top_p`, `top_k`, `min_p`, `typical_p`, `stop`, `max_tokens`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `seed`, `logit_bias`, `logprobs`, `top_logprobs`, `response_format`, `functions`/`function_call`, `tools`/`tool_choice` (model/chat_format-dependent). citeturn11view0turn7view0

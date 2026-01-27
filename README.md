@@ -95,6 +95,37 @@ curl -s http://0.0.0.0:8001/v1/models \
 - `/v1/models` is the discovery endpoint for the model id.
 - Rate limiting is enabled per user via `LLAMA_PROXY_RATE_LIMIT` and `LLAMA_PROXY_RATE_WINDOW_SECONDS`.
 - Requests are logged to Postgres in the `llama_requests` table with latency and byte counts.
+- Conversation management is client-side: send the full (or summarized) message history with each request.
+- OpenAI compatibility is best-effort; optional parameters may be ignored or unsupported.
+- The OpenAI `/v1/completions` API is legacy; prefer `/v1/chat/completions`. citeturn0search0
+
+## OpenAI API parameter support (chat/completions)
+
+This server uses `llama_cpp.server` and primarily targets `/v1/chat/completions`. Support depends on model/chat format; see notes below. The list reflects parameters exposed by the llama-cpp-python API. citeturn11view0
+
+| Parameter | Supported | Notes |
+| --- | --- | --- |
+| `model` | Yes | Must match `/v1/models` id. |
+| `messages` | Yes | Required for chat. |
+| `stream` | Yes | Streaming supported. |
+| `temperature` | Yes | Sampling control. |
+| `top_p` | Yes | Nucleus sampling. |
+| `top_k` | Yes | Top-k sampling. |
+| `min_p` | Yes | Minimum p sampling. |
+| `typical_p` | Yes | Typical sampling. |
+| `stop` | Yes | String or list. |
+| `max_tokens` | Yes | May be limited by context size. |
+| `presence_penalty` | Yes | Sampling penalty. |
+| `frequency_penalty` | Yes | Sampling penalty. |
+| `repeat_penalty` | Yes | Sampling penalty. |
+| `seed` | Yes | Determinism (best-effort). |
+| `logit_bias` | Yes | Bias token probabilities. |
+| `logprobs` / `top_logprobs` | Yes | Logprobs support. |
+| `response_format` | Yes* | JSON/JSON schema supported by llama-cpp-python; model-dependent. citeturn6search8 |
+| `functions` / `function_call` | Yes* | Requires function-calling models and chat_format (e.g., functionary). citeturn7view0 |
+| `tools` / `tool_choice` | Yes* | Same requirement as functions. citeturn11view0turn7view0 |
+
+*If a feature depends on a specific model/chat format, the server may accept the parameter but ignore it.*
 
 ## Scope
 

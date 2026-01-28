@@ -82,4 +82,8 @@ Conversation management is client-side; include the relevant message history wit
 OpenAI compatibility is best-effort; optional parameters may be ignored or unsupported.
 OpenAI `/v1/completions` is a legacy API; use `/v1/chat/completions` where possible. citeturn0search0
 
+Multi-model support: use `runtime/models.yaml` and `./console.sh start multi` to run multiple servers (one per entry).
+Proxy routing for multi-model: map model IDs to backends in `runtime/proxy_routes.yaml` (see example).
+`restart`, `stop`, and `status` operate on the currently running mode (single or multi).
+
 Supported chat parameters (llama-cpp-python API exposure): `model`, `messages`, `stream`, `temperature`, `top_p`, `top_k`, `min_p`, `typical_p`, `stop`, `max_tokens`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `seed`, `logit_bias`, `logprobs`, `top_logprobs`, `response_format`, `functions`/`function_call`, `tools`/`tool_choice` (model/chat_format-dependent). citeturn11view0turn7view0

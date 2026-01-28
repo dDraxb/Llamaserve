@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import hashlib
+import json
 import os
 import time
 from pathlib import Path
 from typing import Dict, Optional
 
 import httpx
+import yaml
 from psycopg2 import pool
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -53,6 +55,7 @@ _load_env_file(ROOT_DIR / ".env")
 
 BACKEND_URL = os.getenv("LLAMA_SERVER_BACKEND_URL", "http://127.0.0.1:8000")
 BACKEND_API_KEY = os.getenv("LLAMA_SERVER_API_KEY", "")
+ROUTES_FILE = os.getenv("LLAMA_PROXY_ROUTES_FILE", str(ROOT_DIR / "runtime" / "proxy_routes.yaml"))
 USERS_TABLE = os.getenv("LLAMA_SERVER_USERS_TABLE", "llama_users")
 REQUESTS_TABLE = os.getenv("LLAMA_SERVER_REQUESTS_TABLE", "llama_requests")
 RATE_LIMIT = int(os.getenv("LLAMA_PROXY_RATE_LIMIT", "60"))
@@ -83,6 +86,20 @@ def _hash_key(token: str) -> str:
 
 def _filter_headers(headers: Dict[str, str]) -> Dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP_HEADERS}
+
+
+def _load_routes() -> Dict[str, str]:
+    routes: Dict[str, str] = {}
+    path = Path(ROUTES_FILE)
+    if not path.exists():
+        return routes
+    data = yaml.safe_load(path.read_text()) or {}
+    for item in data.get("routes", []):
+        model = (item.get("model") or "").strip()
+        url = (item.get("backend_url") or "").strip()
+        if model and url:
+            routes[model] = url
+    return routes
 
 
 def _ensure_table() -> None:
@@ -217,6 +234,7 @@ async def proxy(path: str, request: Request):
     if not username:
         raise HTTPException(status_code=401, detail="Invalid or inactive token")
 
+    routes = _load_routes()
     url = f"{BACKEND_URL.rstrip('/')}/{path}"
     headers = _filter_headers(dict(request.headers))
     headers["x-llama-user"] = username
@@ -228,6 +246,37 @@ async def proxy(path: str, request: Request):
     body = await request.body()
     request_bytes = len(body)
     params = request.query_params
+
+    if routes:
+        if path == "v1/models":
+            async with httpx.AsyncClient(timeout=30) as client:
+                data = []
+                seen = set()
+                for route_model, route_url in routes.items():
+                    route = f"{route_url.rstrip('/')}/v1/models"
+                    try:
+                        resp = await client.get(
+                            route,
+                            headers={"authorization": f"Bearer {BACKEND_API_KEY}"} if BACKEND_API_KEY else None,
+                        )
+                        if resp.status_code == 200:
+                            payload = resp.json()
+                            for item in payload.get("data", []):
+                                model_id = item.get("id")
+                                if model_id and model_id not in seen:
+                                    seen.add(model_id)
+                                    data.append(item)
+                    except Exception:
+                        continue
+                return {"object": "list", "data": data}
+        else:
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+                model = payload.get("model")
+                if model and model in routes:
+                    url = f"{routes[model].rstrip('/')}/{path}"
+            except Exception:
+                pass
 
     if _rate_limited(username):
         _log_request(

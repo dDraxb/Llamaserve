@@ -47,4 +47,11 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Fixed httpx streaming call for older httpx versions.
 - Documented that conversation management is client-side.
 - Added OpenAI chat/completions parameter support table.
+- Added multi-model support via `runtime/models.csv` and new CLI commands.
+- Updated `start` to require explicit `single` or `multi` mode.
+- Added proxy routing via `runtime/proxy_routes.csv` and improved CLI ergonomics for multi-mode control.
+- Made restart/stop/status mode-aware (no explicit mode required).
+- Status now prints the current mode (single or multi).
+- Status prints `Mode : none` when no servers are running.
+- Switched multi-model and proxy routing configs from CSV to YAML.
 - Fixed model selection output contaminating the model path and improved restart order with proxy enabled.

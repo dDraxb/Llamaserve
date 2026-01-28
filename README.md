@@ -6,8 +6,33 @@ Thin wrapper around `llama_cpp.server` that runs **one GGUF model** and exposes 
 
 ```bash
 ./runtime/install.sh
-./console.sh start
+./console.sh start single
 ```
+
+## Multi-model (multiple servers)
+
+This project is single-model by default. To run **multiple models**, start multiple `llama_cpp.server` processes via the CLI.
+
+1) Create a config:
+```bash
+cp runtime/models.yaml.example runtime/models.yaml
+```
+
+2) Edit `runtime/models.yaml` to map models to GPUs and ports.
+
+3) Start all:
+```bash
+./console.sh start multi
+```
+
+4) Status:
+```bash
+./console.sh status-multi
+```
+
+Each entry maps to a separate server instance; use distinct ports and optional `cuda_visible_devices`.
+`restart`, `stop`, and `status` operate on the currently running mode (single or multi).
+To route by model through the proxy, create `runtime/proxy_routes.yaml` from the example and map model IDs to backend URLs.
 
 ## Add models (GGUF only)
 

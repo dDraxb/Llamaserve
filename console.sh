@@ -48,6 +48,7 @@ LLAMA_PROXY_ENABLED="${LLAMA_PROXY_ENABLED:-0}"
 LLAMA_PROXY_HOST="${LLAMA_PROXY_HOST:-0.0.0.0}"
 LLAMA_PROXY_PORT="${LLAMA_PROXY_PORT:-8001}"
 LLAMA_PROXY_PID_FILE="${LLAMA_PROXY_PID_FILE:-$RUNTIME_DIR/llama_proxy.pid}"
+LLAMA_MULTI_CONFIG="${LLAMA_MULTI_CONFIG:-$RUNTIME_DIR/models.yaml}"
 
 # Load config.env if present (overrides above)
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -62,6 +63,7 @@ HFACE_CLI="$LLAMA_SERVER_VENV/bin/huggingface-cli"
 LOG_FILE="$LLAMA_SERVER_LOG_DIR/llama_server.log"
 PROXY_LOG_FILE="$LLAMA_SERVER_LOG_DIR/llama_proxy.log"
 LLAMA_SERVER_BACKEND_URL="${LLAMA_SERVER_BACKEND_URL:-http://127.0.0.1:$LLAMA_SERVER_PORT}"
+INSTANCES_DIR="$RUNTIME_DIR/instances"
 
 ###############################################################################
 # Helpers
@@ -73,6 +75,27 @@ err() {
 
 info() {
   echo ">>> $*"
+}
+
+warn_large_model() {
+  local model_path="$1"
+  local n_gpu_layers="$2"
+  local gpus="$3"
+  if [[ -f "$model_path" ]]; then
+    local size_bytes
+    size_bytes="$(stat -f%z "$model_path" 2>/dev/null || stat -c%s "$model_path" 2>/dev/null || echo 0)"
+    if [[ "$size_bytes" -gt 12000000000 ]]; then
+      if [[ -z "$gpus" ]] || [[ "$n_gpu_layers" == "-1" ]]; then
+        echo "WARNING: Large model detected (~$((size_bytes / 1024 / 1024 / 1024))GB). Ensure you have enough VRAM/RAM and GPU layers set appropriately." >&2
+      fi
+    fi
+  fi
+}
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  echo "$s"
 }
 
 is_server_running() {
@@ -107,6 +130,7 @@ is_proxy_running() {
 
 print_status() {
   if is_server_running; then
+    echo "Mode : single"
     local pid
     pid="$(cat "$LLAMA_SERVER_PID_FILE")"
     local model="(unknown)"
@@ -243,6 +267,232 @@ PY
   info "Fallback model downloaded into: $LLAMA_SERVER_MODELS_DIR"
 }
 
+instance_pid_file() {
+  echo "$INSTANCES_DIR/$1.pid"
+}
+
+instance_model_file() {
+  echo "$INSTANCES_DIR/$1.model"
+}
+
+instance_log_file() {
+  echo "$LLAMA_SERVER_LOG_DIR/llama_server_$1.log"
+}
+
+is_instance_running() {
+  local name="$1"
+  local pid_file
+  pid_file="$(instance_pid_file "$name")"
+  if [[ -f "$pid_file" ]]; then
+    local pid
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      return 0
+    else
+      rm -f "$pid_file"
+      return 1
+    fi
+  fi
+  return 1
+}
+
+start_instance() {
+  local name="$1"
+  local model_input="$2"
+  local host="$3"
+  local port="$4"
+  local gpus="$5"
+  local n_ctx="$6"
+  local n_gpu_layers="$7"
+  local api_key="$8"
+
+  mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
+
+  if is_instance_running "$name"; then
+    err "Instance already running: $name"
+    return 1
+  fi
+
+  local model_path
+  model_path="$(resolve_model_path "$model_input")"
+  warn_large_model "$model_path" "$n_gpu_layers" "$gpus"
+
+  local log_file
+  log_file="$(instance_log_file "$name")"
+
+  local effective_api_key="$api_key"
+  if [[ -z "$effective_api_key" ]]; then
+    effective_api_key="$LLAMA_SERVER_API_KEY"
+  fi
+  if [[ -z "$effective_api_key" ]]; then
+    err "API key missing for instance: $name"
+    return 1
+  fi
+
+  local effective_host="$host"
+  local effective_port="$port"
+  local effective_n_ctx="$n_ctx"
+  local effective_n_gpu_layers="$n_gpu_layers"
+
+  [[ -z "$effective_host" ]] && effective_host="$LLAMA_SERVER_HOST"
+  [[ -z "$effective_port" ]] && effective_port="$LLAMA_SERVER_PORT"
+  [[ -z "$effective_n_ctx" ]] && effective_n_ctx="$LLAMA_SERVER_DEFAULT_N_CTX"
+  [[ -z "$effective_n_gpu_layers" ]] && effective_n_gpu_layers="$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS"
+
+  info "Starting instance [$name]..."
+  info "  Model: $model_path"
+  info "  Host : $effective_host"
+  info "  Port : $effective_port"
+  info "  Log  : $log_file"
+
+  if [[ -n "$gpus" ]]; then
+    CUDA_VISIBLE_DEVICES="$gpus" \
+      "$PYTHON_BIN" -m llama_cpp.server \
+        --model "$model_path" \
+        --host "$effective_host" \
+        --port "$effective_port" \
+        --n_ctx "$effective_n_ctx" \
+        --n_gpu_layers "$effective_n_gpu_layers" \
+        --api_key "$effective_api_key" >>"$log_file" 2>&1 &
+  else
+    "$PYTHON_BIN" -m llama_cpp.server \
+      --model "$model_path" \
+      --host "$effective_host" \
+      --port "$effective_port" \
+      --n_ctx "$effective_n_ctx" \
+      --n_gpu_layers "$effective_n_gpu_layers" \
+      --api_key "$effective_api_key" >>"$log_file" 2>&1 &
+  fi
+
+  echo $! > "$(instance_pid_file "$name")"
+  echo "$model_path" > "$(instance_model_file "$name")"
+  info "Instance [$name] started with PID $(cat "$(instance_pid_file "$name")")"
+}
+
+stop_instance() {
+  local name="$1"
+  local pid_file
+  pid_file="$(instance_pid_file "$name")"
+  if [[ ! -f "$pid_file" ]]; then
+    info "Instance not running: $name"
+    return 0
+  fi
+  local pid
+  pid="$(cat "$pid_file")"
+  info "Stopping instance [$name] (PID $pid)..."
+  kill "$pid" 2>/dev/null || true
+
+  local i
+  for i in {1..20}; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$pid_file"
+      rm -f "$(instance_model_file "$name")"
+      info "Instance [$name] stopped."
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  err "Instance [$name] did not stop gracefully; sending SIGKILL."
+  kill -9 "$pid" 2>/dev/null || true
+  rm -f "$pid_file"
+  rm -f "$(instance_model_file "$name")"
+}
+
+parse_multi_config() {
+  if [[ ! -f "$LLAMA_MULTI_CONFIG" ]]; then
+    err "Multi config not found: $LLAMA_MULTI_CONFIG"
+    exit 1
+  fi
+  "$PYTHON_BIN" - <<PY
+import sys, yaml
+from pathlib import Path
+
+path = Path(r"""$LLAMA_MULTI_CONFIG""")
+data = yaml.safe_load(path.read_text()) or {}
+instances = data.get("instances", [])
+for inst in instances:
+    name = (inst.get("name") or "").strip()
+    if not name:
+        continue
+    model = (inst.get("model") or "").strip()
+    host = (inst.get("host") or "").strip()
+    port = str(inst.get("port") or "").strip()
+    gpus = (inst.get("cuda_visible_devices") or "").strip()
+    n_ctx = str(inst.get("n_ctx") or "").strip()
+    n_gpu_layers = str(inst.get("n_gpu_layers") or "").strip()
+    api_key = (inst.get("api_key") or "").strip()
+    print("|".join([name, model, host, port, gpus, n_ctx, n_gpu_layers, api_key]))
+PY
+}
+
+start_multi() {
+  ensure_venv_and_deps
+  ensure_at_least_one_model
+  mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
+
+  local entry
+  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key; do
+    if is_instance_running "$name"; then
+      err "Instance already running, skipping: $name"
+      continue
+    fi
+    start_instance "$name" "$model" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key"
+  done < <(parse_multi_config)
+}
+
+stop_multi() {
+  if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
+    local entry
+    while IFS='|' read -r name _; do
+      stop_instance "$name"
+    done < <(parse_multi_config)
+    return 0
+  fi
+
+  if [[ -d "$INSTANCES_DIR" ]]; then
+    local pid_file
+    for pid_file in "$INSTANCES_DIR"/*.pid; do
+      [[ -e "$pid_file" ]] || continue
+      local name
+      name="$(basename "$pid_file" .pid)"
+      stop_instance "$name"
+    done
+  fi
+}
+
+status_multi() {
+  if [[ ! -f "$LLAMA_MULTI_CONFIG" ]]; then
+    err "Multi config not found: $LLAMA_MULTI_CONFIG"
+    return 1
+  fi
+  echo "Mode : multi"
+  local entry
+  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key; do
+    if is_instance_running "$name"; then
+      local pid
+      pid="$(cat "$(instance_pid_file "$name")")"
+      local model_path="(unknown)"
+      if [[ -f "$(instance_model_file "$name")" ]]; then
+        model_path="$(cat "$(instance_model_file "$name")")"
+      fi
+      local log_file
+      log_file="$(instance_log_file "$name")"
+      local effective_host="${host:-$LLAMA_SERVER_HOST}"
+      local effective_port="${port:-$LLAMA_SERVER_PORT}"
+      echo "Instance [$name]: RUNNING"
+      echo "  PID   : $pid"
+      echo "  Host  : $effective_host"
+      echo "  Port  : $effective_port"
+      echo "  URL   : http://$effective_host:$effective_port/v1"
+      echo "  Model : $model_path"
+      echo "  Log   : $log_file"
+    else
+      echo "Instance [$name]: NOT RUNNING"
+    fi
+  done < <(parse_multi_config)
+}
+
 select_model_interactively() {
   local -a models
   local model_count
@@ -320,6 +570,7 @@ start_server() {
 
   local model_path
   model_path="$(resolve_model_path "${1:-}")"
+  warn_large_model "$model_path" "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS" "$LLAMA_SERVER_CUDA_VISIBLE_DEVICES"
 
   if [[ -n "$LLAMA_SERVER_CUDA_VISIBLE_DEVICES" ]]; then
     export CUDA_VISIBLE_DEVICES="$LLAMA_SERVER_CUDA_VISIBLE_DEVICES"
@@ -448,13 +699,17 @@ restart_proxy() {
 
 usage() {
   cat <<EOF
-Usage: $0 <command> [model]
+Usage: $0 <command> [args]
 
 Commands:
-  start [model]    Start server (optional model name/path)
-  restart [model]  Restart server (optional model name/path)
-  stop             Stop server
-  status           Show server status
+  start single [model] Start single server (optional model name/path)
+  start multi          Start multiple servers from $LLAMA_MULTI_CONFIG
+  restart [model]      Restart current mode (single or multi)
+  stop                 Stop current mode (single or multi)
+  status               Show what's running (single or multi)
+  start-multi            Start multiple servers (legacy)
+  stop-multi             Stop multiple servers (legacy)
+  status-multi           Show status for multi servers (legacy)
   start-proxy      Start auth proxy
   restart-proxy    Restart auth proxy
   stop-proxy       Stop auth proxy
@@ -467,16 +722,58 @@ main() {
 
   case "$cmd" in
     start)
-      start_server "${1:-}"
+      local mode="${1:-}"
+      shift || true
+      case "$mode" in
+        single)
+          stop_multi
+          start_server "${1:-}"
+          ;;
+        multi)
+          stop_server
+          start_multi
+          ;;
+        ""|help|-h|--help)
+          usage
+          exit 1
+          ;;
+        *)
+          err "Unknown start mode: $mode"
+          usage
+          exit 1
+          ;;
+      esac
       ;;
     restart)
-      restart_server "${1:-}"
+      if is_server_running; then
+        restart_server "${1:-}"
+      else
+        stop_multi
+        start_multi
+      fi
       ;;
     stop)
       stop_server
+      stop_multi
       ;;
     status)
-      print_status
+      if is_server_running; then
+        print_status
+      elif [[ -f "$LLAMA_MULTI_CONFIG" ]] || ls "$INSTANCES_DIR"/*.pid >/dev/null 2>&1; then
+        status_multi
+      else
+        echo "Mode : none"
+        print_status
+      fi
+      ;;
+    start-multi)
+      start_multi
+      ;;
+    stop-multi)
+      stop_multi
+      ;;
+    status-multi)
+      status_multi
       ;;
     start-proxy)
       start_proxy

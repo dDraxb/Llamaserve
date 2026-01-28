@@ -117,7 +117,7 @@ fi
 
 echo ">>> Upgrading pip and installing dependencies inside venv"
 "$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install "llama-cpp-python[server]" "huggingface_hub" "psycopg2-binary"
+"$VENV_DIR/bin/pip" install "llama-cpp-python[server]" "huggingface_hub" "psycopg2-binary" "PyYAML"
 
 echo
 

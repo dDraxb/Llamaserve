@@ -58,8 +58,20 @@ fi
 
 LLAMA_SERVER_MODEL_FILE="${LLAMA_SERVER_MODEL_FILE:-$RUNTIME_DIR/llama_server.model}"
 
-PYTHON_BIN="$LLAMA_SERVER_VENV/bin/python"
-HFACE_CLI="$LLAMA_SERVER_VENV/bin/huggingface-cli"
+VENV_BIN_DIR="$LLAMA_SERVER_VENV/bin"
+if [[ ! -d "$VENV_BIN_DIR" ]]; then
+  VENV_BIN_DIR="$LLAMA_SERVER_VENV/Scripts"
+fi
+
+PYTHON_BIN="$VENV_BIN_DIR/python"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  PYTHON_BIN="$VENV_BIN_DIR/python.exe"
+fi
+
+HFACE_CLI="$VENV_BIN_DIR/huggingface-cli"
+if [[ ! -x "$HFACE_CLI" ]]; then
+  HFACE_CLI="$VENV_BIN_DIR/huggingface-cli.exe"
+fi
 LOG_FILE="$LLAMA_SERVER_LOG_DIR/llama_server.log"
 PROXY_LOG_FILE="$LLAMA_SERVER_LOG_DIR/llama_proxy.log"
 LLAMA_SERVER_BACKEND_URL="${LLAMA_SERVER_BACKEND_URL:-http://127.0.0.1:$LLAMA_SERVER_PORT}"

@@ -54,4 +54,5 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Status now prints the current mode (single or multi).
 - Status prints `Mode : none` when no servers are running.
 - Switched multi-model and proxy routing configs from CSV to YAML.
+- Fixed Windows venv path handling for pip/python in install and console scripts.
 - Fixed model selection output contaminating the model path and improved restart order with proxy enabled.

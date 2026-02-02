@@ -115,9 +115,23 @@ if [[ ! -d "$VENV_DIR" ]]; then
   python3 -m venv "$VENV_DIR"
 fi
 
+VENV_BIN="$VENV_DIR/bin"
+if [[ ! -d "$VENV_BIN" ]]; then
+  VENV_BIN="$VENV_DIR/Scripts"
+fi
+
+PIP_BIN="$VENV_BIN/pip"
+PY_BIN="$VENV_BIN/python"
+if [[ ! -x "$PIP_BIN" ]]; then
+  PIP_BIN="$VENV_BIN/pip.exe"
+fi
+if [[ ! -x "$PY_BIN" ]]; then
+  PY_BIN="$VENV_BIN/python.exe"
+fi
+
 echo ">>> Upgrading pip and installing dependencies inside venv"
-"$VENV_DIR/bin/pip" install --upgrade pip
-"$VENV_DIR/bin/pip" install "llama-cpp-python[server]" "huggingface_hub" "psycopg2-binary" "PyYAML"
+"$PIP_BIN" install --upgrade pip
+"$PIP_BIN" install "llama-cpp-python[server]" "huggingface_hub" "psycopg2-binary" "PyYAML"
 
 echo
 

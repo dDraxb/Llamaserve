@@ -61,14 +61,14 @@ export LLAMA_SERVER_API_KEY=...
 List models:
 
 ```bash
-curl -s http://0.0.0.0:8000/v1/models \
+curl -s http://127.0.0.1:8001/v1/models \
   -H "Authorization: Bearer $LLAMA_SERVER_API_KEY"
 ```
 
 Chat completion:
 
 ```bash
-curl -s http://0.0.0.0:8000/v1/chat/completions \
+curl -s http://127.0.0.1:8001/v1/chat/completions \
   -H "Authorization: Bearer $LLAMA_SERVER_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -85,16 +85,26 @@ curl -s http://0.0.0.0:8000/v1/chat/completions \
 ```bash
 LLAMA_PROXY_ENABLED="1"
 LLAMA_SERVER_HOST="127.0.0.1"
-LLAMA_SERVER_BACKEND_URL="http://127.0.0.1:8000"
+LLAMA_SERVER_BACKEND_URL="http://127.0.0.1:8002"
 ```
 
-If you want a local Postgres, use the included compose file and set the URL in `runtime/config.env`:
+If you want a local Postgres, use the included compose file:
 ```bash
 docker compose up -d postgres
 ```
 
 Defaults for local Postgres are in `.env.example`. Copy it to `.env` and adjust as needed.
 The compose file reads `POSTGRES_AUTH_*` variables.
+If the port is already in use, `runtime/install.sh` picks a free port starting at 15432 and updates `.env`.
+
+If macOS blocks localhost connections, run the proxy in Docker:
+```bash
+docker compose up -d proxy
+```
+This runs the auth proxy inside Docker and avoids local network permission issues. The proxy will still be reachable on port 8001.
+It connects to Postgres over the Docker network (port 5432 inside the container), independent of host port mappings.
+Use `127.0.0.1` for local access and your LAN IP for remote clients; `0.0.0.0` is a bind address, not a client address.
+When using the Docker proxy, backend routes are rewritten to `host.docker.internal` automatically.
 
 2) Bootstrap the user CLI and create users:
 ```bash
@@ -110,7 +120,7 @@ The compose file reads `POSTGRES_AUTH_*` variables.
 
 4) Call the proxy with the **user-specific key** (port 8001 by default):
 ```bash
-curl -s http://0.0.0.0:8001/v1/models \
+curl -s http://127.0.0.1:8001/v1/models \
   -H "Authorization: Bearer <USER_KEY>"
 ```
 
@@ -123,6 +133,49 @@ curl -s http://0.0.0.0:8001/v1/models \
 - Conversation management is client-side: send the full (or summarized) message history with each request.
 - OpenAI compatibility is best-effort; optional parameters may be ignored or unsupported.
 - The OpenAI `/v1/completions` API is legacy; prefer `/v1/chat/completions`. citeturn0search0
+
+## Network layout examples (proxy on 8001)
+
+Single model (proxy is public entrypoint):
+```bash
+# runtime/config.env
+LLAMA_PROXY_ENABLED=1
+LLAMA_SERVER_HOST=127.0.0.1
+LLAMA_SERVER_PORT=8002
+LLAMA_PROXY_HOST=0.0.0.0
+LLAMA_PROXY_PORT=8001
+LLAMA_SERVER_BACKEND_URL=http://127.0.0.1:8002
+```
+
+Multi-model (proxy routes by model):
+```yaml
+# runtime/models.yaml
+instances:
+  - name: gpu0_tinyllama
+    model: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+    host: 127.0.0.1
+    port: 8002
+    cuda_visible_devices: "0"
+    n_ctx: 8192
+    n_gpu_layers: -1
+
+  - name: gpu1_gptoss
+    model: openai_gpt-oss-20b-Q4_K_M.gguf
+    host: 127.0.0.1
+    port: 8003
+    cuda_visible_devices: "1"
+    n_ctx: 8192
+    n_gpu_layers: -1
+```
+
+```yaml
+# runtime/proxy_routes.yaml
+routes:
+  - model: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+    backend_url: http://127.0.0.1:8002
+  - model: openai_gpt-oss-20b-Q4_K_M.gguf
+    backend_url: http://127.0.0.1:8003
+```
 
 ## OpenAI API parameter support (chat/completions)
 

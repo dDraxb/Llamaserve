@@ -36,8 +36,8 @@ LLAMA_SERVER_RUNTIME_DIR="${LLAMA_SERVER_RUNTIME_DIR:-$RUNTIME_DIR}"
 LLAMA_SERVER_VENV="${LLAMA_SERVER_VENV:-$RUNTIME_DIR/.venv}"
 LLAMA_SERVER_MODELS_DIR="${LLAMA_SERVER_MODELS_DIR:-$MODELS_DIR}"
 LLAMA_SERVER_LOG_DIR="${LLAMA_SERVER_LOG_DIR:-$RUNTIME_DIR/logs}"
-LLAMA_SERVER_HOST="${LLAMA_SERVER_HOST:-0.0.0.0}"
-LLAMA_SERVER_PORT="${LLAMA_SERVER_PORT:-8000}"
+LLAMA_SERVER_HOST="${LLAMA_SERVER_HOST:-127.0.0.1}"
+LLAMA_SERVER_PORT="${LLAMA_SERVER_PORT:-8002}"
 LLAMA_SERVER_DEFAULT_N_CTX="${LLAMA_SERVER_DEFAULT_N_CTX:-8192}"
 LLAMA_SERVER_DEFAULT_N_GPU_LAYERS="${LLAMA_SERVER_DEFAULT_N_GPU_LAYERS:--1}"
 LLAMA_SERVER_API_KEY="${LLAMA_SERVER_API_KEY:-}"
@@ -110,6 +110,23 @@ trim() {
   echo "$s"
 }
 
+client_host_for_bind() {
+  local host="$1"
+  if [[ "$host" == "0.0.0.0" ]]; then
+    echo "127.0.0.1"
+  else
+    echo "$host"
+  fi
+}
+
+client_url_for_bind() {
+  local host="$1"
+  local port="$2"
+  local client_host
+  client_host="$(client_host_for_bind "$host")"
+  echo "http://$client_host:$port/v1"
+}
+
 is_server_running() {
   if [[ -f "$LLAMA_SERVER_PID_FILE" ]]; then
     local pid
@@ -151,9 +168,9 @@ print_status() {
     fi
     echo "Server status: RUNNING"
     echo "  PID   : $pid"
-    echo "  Host  : $LLAMA_SERVER_HOST"
+    echo "  Bind  : $LLAMA_SERVER_HOST"
     echo "  Port  : $LLAMA_SERVER_PORT"
-    echo "  URL   : http://$LLAMA_SERVER_HOST:$LLAMA_SERVER_PORT/v1"
+    echo "  URL   : $(client_url_for_bind "$LLAMA_SERVER_HOST" "$LLAMA_SERVER_PORT")"
     echo "  Model : $model"
     echo "  Log   : $LOG_FILE"
   else
@@ -171,9 +188,9 @@ print_status() {
       ppid="$(cat "$LLAMA_PROXY_PID_FILE")"
       echo "Proxy status : RUNNING"
       echo "  PID   : $ppid"
-      echo "  Host  : $LLAMA_PROXY_HOST"
+      echo "  Bind  : $LLAMA_PROXY_HOST"
       echo "  Port  : $LLAMA_PROXY_PORT"
-      echo "  URL   : http://$LLAMA_PROXY_HOST:$LLAMA_PROXY_PORT/v1"
+      echo "  URL   : $(client_url_for_bind "$LLAMA_PROXY_HOST" "$LLAMA_PROXY_PORT")"
       echo "  Log   : $PROXY_LOG_FILE"
     else
       echo "Proxy status : NOT RUNNING"
@@ -216,14 +233,19 @@ PY
 load_env_file() {
   local file="$1"
   [[ -f "$file" ]] || return 0
-  while IFS='=' read -r key value; do
-    [[ -z "$key" ]] && continue
-    [[ "$key" =~ ^# ]] && continue
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    [[ "$line" =~ ^# ]] && continue
+    [[ "$line" != *"="* ]] && continue
+    local key="${line%%=*}"
+    local value="${line#*=}"
+    key="$(trim "$key")"
+    value="$(trim "$value")"
     value="${value%\"}"
     value="${value#\"}"
     value="${value%\'}"
     value="${value#\'}"
-    if [[ -z "${!key:-}" ]]; then
+    if [[ -n "$key" ]] && [[ -z "${!key:-}" ]]; then
       export "$key=$value"
     fi
   done < "$file"
@@ -353,7 +375,7 @@ start_instance() {
 
   info "Starting instance [$name]..."
   info "  Model: $model_path"
-  info "  Host : $effective_host"
+  info "  Bind : $effective_host"
   info "  Port : $effective_port"
   info "  Log  : $log_file"
 
@@ -494,9 +516,9 @@ status_multi() {
       local effective_port="${port:-$LLAMA_SERVER_PORT}"
       echo "Instance [$name]: RUNNING"
       echo "  PID   : $pid"
-      echo "  Host  : $effective_host"
+      echo "  Bind  : $effective_host"
       echo "  Port  : $effective_port"
-      echo "  URL   : http://$effective_host:$effective_port/v1"
+      echo "  URL   : $(client_url_for_bind "$effective_host" "$effective_port")"
       echo "  Model : $model_path"
       echo "  Log   : $log_file"
     else
@@ -508,7 +530,9 @@ status_multi() {
 select_model_interactively() {
   local -a models
   local model_count
-  mapfile -t models < <(find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 1 -type f -name "*.gguf" | sort)
+  while IFS= read -r line; do
+    models+=("$line")
+  done < <(find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 1 -type f -name "*.gguf" | sort)
   model_count="${#models[@]}"
 
   if [[ "$model_count" -eq 0 ]]; then
@@ -590,7 +614,7 @@ start_server() {
 
   info "Starting llama_cpp.server..."
   info "Model: $model_path"
-  info "Host : $LLAMA_SERVER_HOST"
+  info "Bind : $LLAMA_SERVER_HOST"
   info "Port : $LLAMA_SERVER_PORT"
   info "Log  : $LOG_FILE"
 
@@ -628,7 +652,7 @@ start_proxy() {
 
   info "Starting auth proxy..."
   info "Backend: $LLAMA_SERVER_BACKEND_URL"
-  info "Host   : $LLAMA_PROXY_HOST"
+  info "Bind   : $LLAMA_PROXY_HOST"
   info "Port   : $LLAMA_PROXY_PORT"
   info "Log    : $PROXY_LOG_FILE"
 

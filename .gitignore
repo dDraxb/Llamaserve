@@ -2,3 +2,10 @@
 .idea
 ./runtime/.venv/
 ./runtime/config.env
+runtime/config.env
+runtime/llama_proxy.pid
+runtime/llama_server.model
+runtime/llama_server.pid
+runtime/models.yaml
+runtime/proxy_routes.yaml
+.env

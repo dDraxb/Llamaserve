@@ -55,4 +55,16 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Status prints `Mode : none` when no servers are running.
 - Switched multi-model and proxy routing configs from CSV to YAML.
 - Fixed Windows venv path handling for pip/python in install and console scripts.
+- Install now skips dockerized Postgres if the configured port is already in use.
+- Hardened env file parsing to ignore invalid lines.
+- Fixed install script local variable usage outside functions.
+- Docker compose now uses `POSTGRES_AUTH_PORT`, and install auto-picks a free port when needed.
+- When 5432 is busy, install now picks a free port starting at 15432.
+- Standardized defaults to proxy 8001 and backend 8002 (backend remains private).
+- Install now migrates legacy 8000 defaults to the 8001/8002 layout.
+- Replaced `mapfile` usage for better compatibility with older bash versions.
 - Fixed model selection output contaminating the model path and improved restart order with proxy enabled.
+- Added optional Docker-based auth proxy service.
+- Fixed Docker proxy to use Postgres container port 5432.
+- Clarified bind vs client URLs in console output and aligned proxy backend default to 8002.
+- Added route host override for Docker proxy routing.

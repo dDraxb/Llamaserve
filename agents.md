@@ -38,16 +38,16 @@ From the perspective of this file (`agents.md`), the project root looks like:
 
 ## Usage (Quick Test)
 
-1) List models:
+1) List models (via proxy):
 ```bash
-curl -s http://0.0.0.0:8000/v1/models \
-  -H "Authorization: Bearer <API_KEY>"
+curl -s http://127.0.0.1:8001/v1/models \
+  -H "Authorization: Bearer <USER_KEY>"
 ```
 
-2) Chat completion:
+2) Chat completion (via proxy):
 ```bash
-curl -s http://0.0.0.0:8000/v1/chat/completions \
-  -H "Authorization: Bearer <API_KEY>" \
+curl -s http://127.0.0.1:8001/v1/chat/completions \
+  -H "Authorization: Bearer <USER_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",

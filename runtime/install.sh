@@ -18,6 +18,7 @@ MODELS_DIR="$ROOT_DIR/models"
 VENV_DIR="$RUNTIME_DIR/.venv"
 LOG_DIR="$RUNTIME_DIR/logs"
 CONFIG_FILE="$RUNTIME_DIR/config.env"
+ENV_FILE="$ROOT_DIR/.env"
 
 mkdir -p "$RUNTIME_DIR" "$MODELS_DIR" "$LOG_DIR"
 
@@ -59,9 +60,9 @@ LLAMA_SERVER_MODELS_DIR="$MODELS_DIR"
 # Logs
 LLAMA_SERVER_LOG_DIR="$LOG_DIR"
 
-# Host/port for the OpenAI-compatible server
-LLAMA_SERVER_HOST="0.0.0.0"
-LLAMA_SERVER_PORT="8000"
+# Host/port for the OpenAI-compatible server (backend)
+LLAMA_SERVER_HOST="127.0.0.1"
+LLAMA_SERVER_PORT="8002"
 
 # Default model settings
 LLAMA_SERVER_DEFAULT_N_CTX=8192
@@ -74,7 +75,7 @@ LLAMA_SERVER_API_KEY="$API_KEY_GENERATED"
 LLAMA_PROXY_ENABLED="0"
 LLAMA_PROXY_HOST="0.0.0.0"
 LLAMA_PROXY_PORT="8001"
-LLAMA_SERVER_BACKEND_URL="http://127.0.0.1:8000"
+LLAMA_SERVER_BACKEND_URL="http://127.0.0.1:8002"
 # Rate limiting (per user)
 LLAMA_PROXY_RATE_LIMIT="60"
 LLAMA_PROXY_RATE_WINDOW_SECONDS="60"
@@ -95,11 +96,128 @@ else
 fi
 
 ###############################################################################
+# 1a) Migrate legacy defaults to proxy-on-8001 layout (if unchanged)
+###############################################################################
+if [[ -f "$CONFIG_FILE" ]]; then
+  update_config_if_matches() {
+    local key="$1"
+    local from="$2"
+    local to="$3"
+    if rg -q "^${key}=\"${from}\"$" "$CONFIG_FILE"; then
+      python3 - <<PY
+from pathlib import Path
+path = Path(r"""$CONFIG_FILE""")
+text = path.read_text()
+text = text.replace('${key}="${from}"', '${key}="${to}"')
+path.write_text(text)
+PY
+    fi
+  }
+  update_config_if_matches "LLAMA_SERVER_HOST" "0.0.0.0" "127.0.0.1"
+  update_config_if_matches "LLAMA_SERVER_PORT" "8000" "8002"
+  update_config_if_matches "LLAMA_PROXY_PORT" "8000" "8001"
+  update_config_if_matches "LLAMA_SERVER_BACKEND_URL" "http://127.0.0.1:8000" "http://127.0.0.1:8002"
+fi
+
+trim() {
+  local s="$1"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  echo "$s"
+}
+
+load_env_file() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    [[ "$line" =~ ^# ]] && continue
+    [[ "$line" != *"="* ]] && continue
+    local key="${line%%=*}"
+    local value="${line#*=}"
+    key="$(trim "$key")"
+    value="$(trim "$value")"
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+    if [[ -n "$key" ]] && [[ -z "${!key:-}" ]]; then
+      export "$key=$value"
+    fi
+  done < "$file"
+}
+
+port_in_use() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn | awk '{print $4}' | grep -E "[:.]$port$" >/dev/null 2>&1
+    return $?
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -an 2>/dev/null | grep -E "[\.:]$port[[:space:]]+.*LISTEN" >/dev/null 2>&1
+    return $?
+  fi
+  return 1
+}
+
+find_free_port() {
+  local port="$1"
+  while port_in_use "$port"; do
+    port=$((port + 1))
+  done
+  echo "$port"
+}
+
+set_env_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  if [[ ! -f "$file" ]]; then
+    echo "$key=$value" > "$file"
+    return 0
+  fi
+  if rg -q "^${key}=" "$file"; then
+    python3 - <<PY
+from pathlib import Path
+path = Path(r"""$file""")
+text = path.read_text()
+lines = []
+for line in text.splitlines():
+    if line.startswith("$key="):
+        lines.append("$key=$value")
+    else:
+        lines.append(line)
+path.write_text("\\n".join(lines) + "\\n")
+PY
+  else
+    echo "$key=$value" >> "$file"
+  fi
+}
+
+###############################################################################
 # 1b) Start local Postgres (docker compose) if available
 ###############################################################################
-if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+load_env_file "$ENV_FILE"
+POSTGRES_AUTH_PORT="${POSTGRES_AUTH_PORT:-5432}"
+
+if [[ "${LLAMA_SKIP_DOCKER_DB:-0}" == "1" ]]; then
+  echo ">>> Skipping Postgres startup (LLAMA_SKIP_DOCKER_DB=1)."
+  echo
+elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  local_recreate=""
+  if port_in_use "$POSTGRES_AUTH_PORT"; then
+    new_port="$(find_free_port 15432)"
+    set_env_value "$ENV_FILE" "POSTGRES_AUTH_PORT" "$new_port"
+    POSTGRES_AUTH_PORT="$new_port"
+    echo ">>> Port in use; switched POSTGRES_AUTH_PORT to $POSTGRES_AUTH_PORT in .env."
+    local_recreate="--force-recreate"
+  fi
   echo ">>> Starting Postgres via docker compose..."
-  docker compose -f "$ROOT_DIR/docker-compose.yml" up -d postgres
+  docker compose -f "$ROOT_DIR/docker-compose.yml" up -d $local_recreate postgres
   echo
 else
   echo ">>> Docker compose not available; skipping Postgres startup."

@@ -5,6 +5,7 @@ import os
 import time
 from pathlib import Path
 from typing import Dict, Optional
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 import yaml
@@ -53,9 +54,10 @@ def _load_env_file(path: Path) -> None:
 _load_env_file(ROOT_DIR / "runtime" / "config.env")
 _load_env_file(ROOT_DIR / ".env")
 
-BACKEND_URL = os.getenv("LLAMA_SERVER_BACKEND_URL", "http://127.0.0.1:8000")
+BACKEND_URL = os.getenv("LLAMA_SERVER_BACKEND_URL", "http://127.0.0.1:8002")
 BACKEND_API_KEY = os.getenv("LLAMA_SERVER_API_KEY", "")
 ROUTES_FILE = os.getenv("LLAMA_PROXY_ROUTES_FILE", str(ROOT_DIR / "runtime" / "proxy_routes.yaml"))
+ROUTE_HOST_OVERRIDE = os.getenv("LLAMA_PROXY_ROUTE_HOST", "")
 USERS_TABLE = os.getenv("LLAMA_SERVER_USERS_TABLE", "llama_users")
 REQUESTS_TABLE = os.getenv("LLAMA_SERVER_REQUESTS_TABLE", "llama_requests")
 RATE_LIMIT = int(os.getenv("LLAMA_PROXY_RATE_LIMIT", "60"))
@@ -98,6 +100,12 @@ def _load_routes() -> Dict[str, str]:
         model = (item.get("model") or "").strip()
         url = (item.get("backend_url") or "").strip()
         if model and url:
+            if ROUTE_HOST_OVERRIDE:
+                parsed = urlparse(url)
+                url = urlunparse(
+                    (parsed.scheme, f"{ROUTE_HOST_OVERRIDE}:{parsed.port}" if parsed.port else ROUTE_HOST_OVERRIDE,
+                     parsed.path, parsed.params, parsed.query, parsed.fragment)
+                )
             routes[model] = url
     return routes
 

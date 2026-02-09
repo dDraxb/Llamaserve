@@ -6,6 +6,8 @@ runtime/config.env
 runtime/llama_proxy.pid
 runtime/llama_server.model
 runtime/llama_server.pid
-runtime/models.yaml
-runtime/proxy_routes.yaml
+config/models.yaml
+config/proxy_routes.yaml
+logs/
+data/postgres/
 .env

@@ -9,16 +9,22 @@ Thin wrapper around `llama_cpp.server` that runs **one GGUF model** and exposes 
 ./console.sh start single
 ```
 
+## Layout
+
+- `config/` for multi-model and proxy routing YAML.
+- `logs/` for server and proxy logs.
+- `data/postgres/` for Postgres data (auth + request logs).
+
 ## Multi-model (multiple servers)
 
 This project is single-model by default. To run **multiple models**, start multiple `llama_cpp.server` processes via the CLI.
 
 1) Create a config:
 ```bash
-cp runtime/models.yaml.example runtime/models.yaml
+cp config/models.yaml.example config/models.yaml
 ```
 
-2) Edit `runtime/models.yaml` to map models to GPUs and ports.
+2) Edit `config/models.yaml` to map models to GPUs and ports.
 
 3) Start all:
 ```bash
@@ -32,7 +38,7 @@ cp runtime/models.yaml.example runtime/models.yaml
 
 Each entry maps to a separate server instance; use distinct ports and optional `cuda_visible_devices`.
 `restart`, `stop`, and `status` operate on the currently running mode (single or multi).
-To route by model through the proxy, create `runtime/proxy_routes.yaml` from the example and map model IDs to backend URLs.
+To route by model through the proxy, create `config/proxy_routes.yaml` from the example and map model IDs to backend URLs.
 
 ## Add models (GGUF only)
 
@@ -149,7 +155,7 @@ LLAMA_SERVER_BACKEND_URL=http://127.0.0.1:8002
 
 Multi-model (proxy routes by model):
 ```yaml
-# runtime/models.yaml
+# config/models.yaml
 instances:
   - name: gpu0_tinyllama
     model: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
@@ -169,7 +175,7 @@ instances:
 ```
 
 ```yaml
-# runtime/proxy_routes.yaml
+# config/proxy_routes.yaml
 routes:
   - model: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
     backend_url: http://127.0.0.1:8002

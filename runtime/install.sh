@@ -16,16 +16,18 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUNTIME_DIR="$SCRIPT_DIR"
 MODELS_DIR="$ROOT_DIR/models"
 VENV_DIR="$RUNTIME_DIR/.venv"
-LOG_DIR="$RUNTIME_DIR/logs"
+LOG_DIR="$ROOT_DIR/logs"
+CONFIG_DIR="$ROOT_DIR/config"
 CONFIG_FILE="$RUNTIME_DIR/config.env"
 ENV_FILE="$ROOT_DIR/.env"
 
-mkdir -p "$RUNTIME_DIR" "$MODELS_DIR" "$LOG_DIR"
+mkdir -p "$RUNTIME_DIR" "$MODELS_DIR" "$LOG_DIR" "$CONFIG_DIR"
 
 echo ">>> Installing llama-server into runtime dir: $RUNTIME_DIR"
 echo ">>> Project root : $ROOT_DIR"
 echo ">>> Models dir   : $MODELS_DIR"
 echo ">>> Logs dir     : $LOG_DIR"
+echo ">>> Config dir   : $CONFIG_DIR"
 echo ">>> Virtualenv   : $VENV_DIR"
 echo
 
@@ -48,7 +50,7 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 # Root directory (project root)
 LLAMA_SERVER_ROOT="$ROOT_DIR"
 
-# Runtime directory (holds venv, logs, config)
+# Runtime directory (holds venv and runtime state)
 LLAMA_SERVER_RUNTIME_DIR="$RUNTIME_DIR"
 
 # Virtualenv path

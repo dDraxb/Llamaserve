@@ -67,4 +67,6 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Added optional Docker-based auth proxy service.
 - Fixed Docker proxy to use Postgres container port 5432.
 - Clarified bind vs client URLs in console output and aligned proxy backend default to 8002.
+- Split runtime clutter into top-level `config/`, `logs/`, and `data/postgres/`.
+- Updated docker-compose and defaults to use the new data/log/config paths.
 - Added route host override for Docker proxy routing.

@@ -29,8 +29,13 @@ From the perspective of this file (`agents.md`), the project root looks like:
     install.sh      # one-time installer (venv + deps + config + fallback model)
     config.env      # generated configuration (paths, host/port, API key, etc.)
     .venv/          # Python virtualenv with llama-cpp-python[server], huggingface_hub
-    logs/
-      llama_server.log
+  config/
+    models.yaml     # multi-model instances
+    proxy_routes.yaml # proxy routing by model
+  logs/
+    llama_server.log
+  data/
+    postgres/       # Postgres data directory
   models/
     *.gguf          # one or more GGUF LLM model files (downloaded or copied here)
 
@@ -82,8 +87,8 @@ Conversation management is client-side; include the relevant message history wit
 OpenAI compatibility is best-effort; optional parameters may be ignored or unsupported.
 OpenAI `/v1/completions` is a legacy API; use `/v1/chat/completions` where possible. citeturn0search0
 
-Multi-model support: use `runtime/models.yaml` and `./console.sh start multi` to run multiple servers (one per entry).
-Proxy routing for multi-model: map model IDs to backends in `runtime/proxy_routes.yaml` (see example).
+Multi-model support: use `config/models.yaml` and `./console.sh start multi` to run multiple servers (one per entry).
+Proxy routing for multi-model: map model IDs to backends in `config/proxy_routes.yaml` (see example).
 `restart`, `stop`, and `status` operate on the currently running mode (single or multi).
 
 Supported chat parameters (llama-cpp-python API exposure): `model`, `messages`, `stream`, `temperature`, `top_p`, `top_k`, `min_p`, `typical_p`, `stop`, `max_tokens`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `seed`, `logit_bias`, `logprobs`, `top_logprobs`, `response_format`, `functions`/`function_call`, `tools`/`tool_choice` (model/chat_format-dependent). citeturn11view0turn7view0

@@ -56,7 +56,7 @@ _load_env_file(ROOT_DIR / ".env")
 
 BACKEND_URL = os.getenv("LLAMA_SERVER_BACKEND_URL", "http://127.0.0.1:8002")
 BACKEND_API_KEY = os.getenv("LLAMA_SERVER_API_KEY", "")
-ROUTES_FILE = os.getenv("LLAMA_PROXY_ROUTES_FILE", str(ROOT_DIR / "runtime" / "proxy_routes.yaml"))
+ROUTES_FILE = os.getenv("LLAMA_PROXY_ROUTES_FILE", str(ROOT_DIR / "config" / "proxy_routes.yaml"))
 ROUTE_HOST_OVERRIDE = os.getenv("LLAMA_PROXY_ROUTE_HOST", "")
 USERS_TABLE = os.getenv("LLAMA_SERVER_USERS_TABLE", "llama_users")
 REQUESTS_TABLE = os.getenv("LLAMA_SERVER_REQUESTS_TABLE", "llama_requests")

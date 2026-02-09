@@ -85,9 +85,9 @@ curl -s http://127.0.0.1:8001/v1/chat/completions \
 
 ## Multi-user auth (Postgres proxy)
 
-`llama_cpp.server` only supports a single API key. To support **one key per user**, run the auth proxy.
+`llama_cpp.server` only supports a single API key. To support **one key per user**, run the auth proxy (Docker is the default).
 
-1) Configure DB in `.env` using `POSTGRES_AUTH_*` and enable proxy in `runtime/config.env`:
+1) Configure DB in `.env` using `POSTGRES_AUTH_*` and keep the backend private:
 ```bash
 LLAMA_PROXY_ENABLED="1"
 LLAMA_SERVER_HOST="127.0.0.1"
@@ -103,7 +103,7 @@ Defaults for local Postgres are in `.env.example`. Copy it to `.env` and adjust 
 The compose file reads `POSTGRES_AUTH_*` variables.
 If the port is already in use, `runtime/install.sh` picks a free port starting at 15432 and updates `.env`.
 
-If macOS blocks localhost connections, run the proxy in Docker:
+Run the proxy in Docker (recommended on macOS):
 ```bash
 docker compose up -d proxy
 ```
@@ -119,9 +119,9 @@ When using the Docker proxy, backend routes are rewritten to `host.docker.intern
 ./bin/user_management_cli.sh create-user --username alice
 ```
 
-3) Start the server (this also starts the proxy when enabled):
+3) Start the backend server:
 ```bash
-./console.sh start
+./console.sh start single
 ```
 
 4) Call the proxy with the **user-specific key** (port 8001 by default):
@@ -129,6 +129,8 @@ When using the Docker proxy, backend routes are rewritten to `host.docker.intern
 curl -s http://127.0.0.1:8001/v1/models \
   -H "Authorization: Bearer <USER_KEY>"
 ```
+
+Local proxy is still available for development via `./console.sh start-proxy`, but Docker avoids macOS localhost permission issues and keeps DB access consistent.
 
 ## Notes
 

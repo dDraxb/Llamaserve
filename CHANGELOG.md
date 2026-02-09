@@ -69,4 +69,5 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Clarified bind vs client URLs in console output and aligned proxy backend default to 8002.
 - Split runtime clutter into top-level `config/`, `logs/`, and `data/postgres/`.
 - Updated docker-compose and defaults to use the new data/log/config paths.
+- Documentation now recommends Docker proxy as the default (local proxy remains optional).
 - Added route host override for Docker proxy routing.

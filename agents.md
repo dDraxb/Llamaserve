@@ -64,7 +64,7 @@ curl -s http://127.0.0.1:8001/v1/chat/completions \
 
 ## Multi-user Auth (Proxy)
 
-To support one API key per user, run the Postgres-backed auth proxy. It validates user keys and forwards to `llama_cpp.server`.
+To support one API key per user, run the Postgres-backed auth proxy (Docker default). It validates user keys and forwards to `llama_cpp.server`.
 
 Key env vars:
 - `POSTGRES_AUTH_*` in `.env` (DB config)
@@ -73,6 +73,13 @@ Key env vars:
 - `LLAMA_PROXY_PORT=8001` (default)
 - `LLAMA_PROXY_RATE_LIMIT=60` (per user)
 - `LLAMA_PROXY_RATE_WINDOW_SECONDS=60`
+
+Recommended proxy startup (Docker):
+```bash
+docker compose up -d proxy
+```
+
+Local proxy is still available for development via `./console.sh start-proxy`.
 
 User CLI (see README for details):
 ```bash

@@ -128,6 +128,7 @@ client_url_for_bind() {
 }
 
 is_server_running() {
+  local strict="${1:-0}"
   if [[ -f "$LLAMA_SERVER_PID_FILE" ]]; then
     local pid
     pid="$(cat "$LLAMA_SERVER_PID_FILE" 2>/dev/null || true)"
@@ -135,9 +136,25 @@ is_server_running() {
       return 0
     else
       rm -f "$LLAMA_SERVER_PID_FILE"
+      if [[ "$strict" -eq 0 ]]; then
+        local detected_pid
+        detected_pid="$(find_pid_by_port "$LLAMA_SERVER_PORT")"
+        if [[ -n "$detected_pid" ]] && is_llama_process "$detected_pid"; then
+          echo "$detected_pid" > "$LLAMA_SERVER_PID_FILE"
+          return 0
+        fi
+      fi
       return 1
     fi
   else
+    if [[ "$strict" -eq 0 ]]; then
+      local detected_pid
+      detected_pid="$(find_pid_by_port "$LLAMA_SERVER_PORT")"
+      if [[ -n "$detected_pid" ]] && is_llama_process "$detected_pid"; then
+        echo "$detected_pid" > "$LLAMA_SERVER_PID_FILE"
+        return 0
+      fi
+    fi
     return 1
   fi
 }
@@ -157,8 +174,52 @@ is_proxy_running() {
   fi
 }
 
+find_pid_by_port() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $2; exit}'
+    return 0
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp "sport = :$port" 2>/dev/null | sed -n 's/.*pid=\\([0-9]*\\).*/\\1/p' | head -n1
+    return 0
+  fi
+  return 1
+}
+
+is_llama_process() {
+  local pid="$1"
+  if command -v ps >/dev/null 2>&1; then
+    local cmd
+    cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+    if [[ -z "$cmd" ]]; then
+      return 0
+    fi
+    echo "$cmd" | grep -q "llama_cpp.server"
+    return $?
+  fi
+  return 0
+}
+
+has_running_instances() {
+  if [[ ! -d "$INSTANCES_DIR" ]]; then
+    return 1
+  fi
+  local pid_file
+  for pid_file in "$INSTANCES_DIR"/*.pid; do
+    [[ -e "$pid_file" ]] || continue
+    local pid
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 print_status() {
-  if is_server_running; then
+  local strict="${1:-0}"
+  if is_server_running "$strict"; then
     echo "Mode : single"
     local pid
     pid="$(cat "$LLAMA_SERVER_PID_FILE")"
@@ -330,6 +391,21 @@ is_instance_running() {
   return 1
 }
 
+repair_instance_pid() {
+  local name="$1"
+  local port="$2"
+  if [[ -z "$port" ]]; then
+    return 1
+  fi
+  local detected_pid
+  detected_pid="$(find_pid_by_port "$port")"
+  if [[ -n "$detected_pid" ]] && is_llama_process "$detected_pid"; then
+    echo "$detected_pid" > "$(instance_pid_file "$name")"
+    return 0
+  fi
+  return 1
+}
+
 start_instance() {
   local name="$1"
   local model_input="$2"
@@ -496,35 +572,59 @@ stop_multi() {
 }
 
 status_multi() {
-  if [[ ! -f "$LLAMA_MULTI_CONFIG" ]]; then
-    err "Multi config not found: $LLAMA_MULTI_CONFIG"
-    return 1
-  fi
+  local strict="${1:-0}"
   echo "Mode : multi"
-  local entry
-  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key; do
+  if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
+    local entry
+    while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key; do
+      local effective_port="${port:-$LLAMA_SERVER_PORT}"
+      if ! is_instance_running "$name" && [[ "$strict" -eq 0 ]]; then
+        repair_instance_pid "$name" "$effective_port" || true
+      fi
+      if is_instance_running "$name"; then
+        local pid
+        pid="$(cat "$(instance_pid_file "$name")")"
+        local model_path="(unknown)"
+        if [[ -f "$(instance_model_file "$name")" ]]; then
+          model_path="$(cat "$(instance_model_file "$name")")"
+        fi
+        local log_file
+        log_file="$(instance_log_file "$name")"
+        local effective_host="${host:-$LLAMA_SERVER_HOST}"
+        echo "Instance [$name]: RUNNING"
+        echo "  PID   : $pid"
+        echo "  Bind  : $effective_host"
+        echo "  Port  : $effective_port"
+        echo "  URL   : $(client_url_for_bind "$effective_host" "$effective_port")"
+        echo "  Model : $model_path"
+        echo "  Log   : $log_file"
+      else
+        echo "Instance [$name]: NOT RUNNING"
+      fi
+    done < <(parse_multi_config)
+    return 0
+  fi
+
+  local pid_file
+  for pid_file in "$INSTANCES_DIR"/*.pid; do
+    [[ -e "$pid_file" ]] || continue
+    local name
+    name="$(basename "$pid_file" .pid)"
     if is_instance_running "$name"; then
       local pid
-      pid="$(cat "$(instance_pid_file "$name")")"
+      pid="$(cat "$pid_file")"
       local model_path="(unknown)"
       if [[ -f "$(instance_model_file "$name")" ]]; then
         model_path="$(cat "$(instance_model_file "$name")")"
       fi
-      local log_file
-      log_file="$(instance_log_file "$name")"
-      local effective_host="${host:-$LLAMA_SERVER_HOST}"
-      local effective_port="${port:-$LLAMA_SERVER_PORT}"
       echo "Instance [$name]: RUNNING"
       echo "  PID   : $pid"
-      echo "  Bind  : $effective_host"
-      echo "  Port  : $effective_port"
-      echo "  URL   : $(client_url_for_bind "$effective_host" "$effective_port")"
       echo "  Model : $model_path"
-      echo "  Log   : $log_file"
+      echo "  Log   : $(instance_log_file "$name")"
     else
       echo "Instance [$name]: NOT RUNNING"
     fi
-  done < <(parse_multi_config)
+  done
 }
 
 select_model_interactively() {
@@ -742,7 +842,7 @@ Commands:
   start multi          Start multiple servers from $LLAMA_MULTI_CONFIG
   restart [model]      Restart current mode (single or multi)
   stop                 Stop current mode (single or multi)
-  status               Show what's running (single or multi)
+  status [single|multi] [--strict] Show what's running (single or multi)
   start-multi            Start multiple servers (legacy)
   stop-multi             Stop multiple servers (legacy)
   status-multi           Show status for multi servers (legacy)
@@ -793,14 +893,47 @@ main() {
       stop_multi
       ;;
     status)
-      if is_server_running; then
-        print_status
-      elif [[ -f "$LLAMA_MULTI_CONFIG" ]] || ls "$INSTANCES_DIR"/*.pid >/dev/null 2>&1; then
-        status_multi
-      else
-        echo "Mode : none"
-        print_status
-      fi
+      local mode=""
+      local strict=0
+      local arg
+      for arg in "$@"; do
+        case "$arg" in
+          --strict)
+            strict=1
+            ;;
+          single|multi)
+            mode="$arg"
+            ;;
+          *)
+            err "Unknown status filter: $arg"
+            usage
+            exit 1
+            ;;
+        esac
+      done
+      case "$mode" in
+        "")
+          if is_server_running "$strict"; then
+            print_status "$strict"
+          elif has_running_instances; then
+            status_multi "$strict"
+          else
+            echo "Mode : none"
+            print_status "$strict"
+          fi
+          ;;
+        single)
+          print_status "$strict"
+          ;;
+        multi)
+          if has_running_instances; then
+            status_multi "$strict"
+          else
+            echo "Mode : none"
+            echo "No multi instances running."
+          fi
+          ;;
+      esac
       ;;
     start-multi)
       start_multi

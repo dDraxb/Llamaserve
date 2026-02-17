@@ -39,6 +39,8 @@ From the perspective of this file (`agents.md`), the project root looks like:
   models/
     *.gguf          # one or more GGUF LLM model files (downloaded or copied here)
 
+Note: For sharded GGUF (e.g., `*-00001-of-00003.gguf`), place all shards in a subfolder under `models/` so the CLI shows a single “sharded” option and picks the `00001` shard.
+
 ---
 
 ## Usage (Quick Test)

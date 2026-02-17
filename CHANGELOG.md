@@ -72,4 +72,6 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Documentation now recommends Docker proxy as the default (local proxy remains optional).
 - Fixed `status` to avoid reporting multi-mode just because a config exists; it now checks running instances and rejects extra args.
 - `status` now repairs missing PID files for single and multi mode by detecting listeners on configured ports (use `--strict` to disable).
+- Model picker now groups sharded GGUF and allows selecting folders with shards (auto-selects the `00001` shard).
+- CLI now warns when sharded GGUF files are placed in the root `models/` directory.
 - Added route host override for Docker proxy routing.

@@ -324,7 +324,7 @@ ensure_db_url() {
 }
 
 ensure_at_least_one_model() {
-  if ls "$LLAMA_SERVER_MODELS_DIR"/*.gguf >/dev/null 2>&1; then
+  if find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 2 -type f -name "*.gguf" | rg -q "."; then
     return 0
   fi
 
@@ -627,12 +627,102 @@ status_multi() {
   done
 }
 
+select_shard_from_dir() {
+  local dir="$1"
+  local shard
+  shard="$(find "$dir" -maxdepth 1 -type f -name "*-00001-of-*.gguf" | sort | head -n 1)"
+  if [[ -n "$shard" ]]; then
+    echo "$shard"
+    return 0
+  fi
+  shard="$(find "$dir" -maxdepth 1 -type f -name "*.gguf" | sort | head -n 1)"
+  if [[ -n "$shard" ]]; then
+    echo "$shard"
+    return 0
+  fi
+  return 1
+}
+
+select_shard_by_prefix() {
+  local prefix="$1"
+  local shard
+  shard="$(find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 1 -type f -name "${prefix}-00001-of-*.gguf" | sort | head -n 1)"
+  if [[ -n "$shard" ]]; then
+    echo "$shard"
+    return 0
+  fi
+  return 1
+}
+
 select_model_interactively() {
   local -a models
+  local -a targets
+  local -a shard_prefixes
+  local -a shard_paths
+  local -a top_files
+  local -a model_dirs
+  local shard_in_root=0
   local model_count
+
   while IFS= read -r line; do
-    models+=("$line")
+    top_files+=("$line")
   done < <(find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 1 -type f -name "*.gguf" | sort)
+
+  local file
+  for file in "${top_files[@]}"; do
+    local base
+    base="$(basename "$file")"
+    if [[ "$base" =~ ^(.*)-00001-of-[0-9]+\.gguf$ ]]; then
+      shard_prefixes+=("${BASH_REMATCH[1]}")
+      shard_paths+=("$file")
+      shard_in_root=1
+    fi
+  done
+
+  local dir
+  while IFS= read -r dir; do
+    if [[ "$dir" == "$LLAMA_SERVER_MODELS_DIR" ]]; then
+      continue
+    fi
+    if find "$dir" -maxdepth 1 -type f -name "*.gguf" | rg -q "."; then
+      local dir_name
+      dir_name="$(basename "$dir")"
+      local shard
+      shard="$(select_shard_from_dir "$dir" || true)"
+      if [[ -n "$shard" ]]; then
+        models+=("${dir_name}/ (sharded)")
+        targets+=("$shard")
+      fi
+    fi
+  done < <(find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 1 -type d | sort)
+
+  local i
+  for i in "${!shard_prefixes[@]}"; do
+    models+=("${shard_prefixes[$i]} (sharded)")
+    targets+=("${shard_paths[$i]}")
+  done
+
+  for file in "${top_files[@]}"; do
+    local base
+    base="$(basename "$file")"
+    if [[ "$base" =~ ^(.*)-0000[0-9]-of-[0-9]+\.gguf$ ]]; then
+      local prefix="${BASH_REMATCH[1]}"
+      local skip=0
+      local p
+      for p in "${shard_prefixes[@]}"; do
+        if [[ "$p" == "$prefix" ]]; then
+          skip=1
+          break
+        fi
+      done
+      if [[ "$skip" -eq 1 ]]; then
+        continue
+      fi
+    fi
+    models+=("$base")
+    targets+=("$file")
+  done
+
   model_count="${#models[@]}"
 
   if [[ "$model_count" -eq 0 ]]; then
@@ -640,25 +730,29 @@ select_model_interactively() {
     exit 1
   fi
 
+  if [[ "$shard_in_root" -eq 1 ]]; then
+    echo "Warning: Sharded GGUF files found in $LLAMA_SERVER_MODELS_DIR." >&2
+    echo "Consider moving each shard set into its own subfolder for cleaner selection." >&2
+  fi
+
   if [[ "$model_count" -eq 1 ]]; then
     local only_model
     only_model="${models[0]}"
-    echo "Using only available model: $(basename "$only_model")" >&2
-    echo "$only_model"
+    echo "Using only available model: $only_model" >&2
+    echo "${targets[0]}"
     return 0
   fi
 
   echo "Available models:" >&2
-  local i
   for i in "${!models[@]}"; do
-    printf "  [%d] %s\n" "$((i + 1))" "$(basename "${models[$i]}")" >&2
+    printf "  [%d] %s\n" "$((i + 1))" "${models[$i]}" >&2
   done
 
   local choice
   while true; do
     read -r -p "Select a model [1-$model_count]: " choice
     if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= model_count)); then
-      echo "${models[$((choice - 1))]}"
+      echo "${targets[$((choice - 1))]}"
       return 0
     fi
     err "Invalid selection."
@@ -677,8 +771,33 @@ resolve_model_path() {
     return 0
   fi
 
+  if [[ -d "$input" ]]; then
+    local shard
+    shard="$(select_shard_from_dir "$input" || true)"
+    if [[ -n "$shard" ]]; then
+      echo "$shard"
+      return 0
+    fi
+  fi
+
+  if [[ -d "$LLAMA_SERVER_MODELS_DIR/$input" ]]; then
+    local shard
+    shard="$(select_shard_from_dir "$LLAMA_SERVER_MODELS_DIR/$input" || true)"
+    if [[ -n "$shard" ]]; then
+      echo "$shard"
+      return 0
+    fi
+  fi
+
   if [[ -f "$LLAMA_SERVER_MODELS_DIR/$input" ]]; then
     echo "$LLAMA_SERVER_MODELS_DIR/$input"
+    return 0
+  fi
+
+  local shard
+  shard="$(select_shard_by_prefix "$input" || true)"
+  if [[ -n "$shard" ]]; then
+    echo "$shard"
     return 0
   fi
 

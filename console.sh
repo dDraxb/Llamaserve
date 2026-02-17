@@ -324,7 +324,7 @@ ensure_db_url() {
 }
 
 ensure_at_least_one_model() {
-  if find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 2 -type f -name "*.gguf" | rg -q "."; then
+  if find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 2 -type f -name "*.gguf" -print -quit >/dev/null 2>&1; then
     return 0
   fi
 

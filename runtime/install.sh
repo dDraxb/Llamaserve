@@ -105,7 +105,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
     local key="$1"
     local from="$2"
     local to="$3"
-    if rg -q "^${key}=\"${from}\"$" "$CONFIG_FILE"; then
+    if grep -q "^${key}=\"${from}\"$" "$CONFIG_FILE"; then
       python3 - <<PY
 from pathlib import Path
 path = Path(r"""$CONFIG_FILE""")
@@ -182,7 +182,7 @@ set_env_value() {
     echo "$key=$value" > "$file"
     return 0
   fi
-  if rg -q "^${key}=" "$file"; then
+  if grep -q "^${key}=" "$file"; then
     python3 - <<PY
 from pathlib import Path
 path = Path(r"""$file""")

@@ -684,7 +684,7 @@ select_model_interactively() {
     if [[ "$dir" == "$LLAMA_SERVER_MODELS_DIR" ]]; then
       continue
     fi
-    if find "$dir" -maxdepth 1 -type f -name "*.gguf" | rg -q "."; then
+    if find "$dir" -maxdepth 1 -type f -name "*.gguf" -print -quit >/dev/null 2>&1; then
       local dir_name
       dir_name="$(basename "$dir")"
       local shard

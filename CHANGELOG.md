@@ -76,4 +76,5 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - CLI now warns when sharded GGUF files are placed in the root `models/` directory.
 - Added `LLAMA_SERVER_CHAT_FORMAT` (and per-instance `chat_format`) to apply the correct chat template for models that emit raw markers.
 - Install no longer writes `LLAMA_SERVER_CHAT_FORMAT`; prefer per-instance `chat_format` in `config/models.yaml`.
+- Added `--chat-format` flag for `start single` to set chat templates without editing config.env.
 - Added route host override for Docker proxy routing.

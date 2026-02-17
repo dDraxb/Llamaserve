@@ -836,12 +836,31 @@ start_server() {
   mkdir -p "$LLAMA_SERVER_LOG_DIR"
 
   local model_path
-  model_path="$(resolve_model_path "${1:-}")"
+  local model_arg=""
+  local chat_format_arg=""
+  local arg
+  while [[ $# -gt 0 ]]; do
+    arg="$1"
+    case "$arg" in
+      --chat-format)
+        shift || true
+        chat_format_arg="${1:-}"
+        ;;
+      *)
+        if [[ -z "$model_arg" ]]; then
+          model_arg="$arg"
+        fi
+        ;;
+    esac
+    shift || true
+  done
+
+  model_path="$(resolve_model_path "$model_arg")"
   warn_large_model "$model_path" "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS" "$LLAMA_SERVER_CUDA_VISIBLE_DEVICES"
 
   local -a chat_format_args=()
-  if [[ -n "$LLAMA_SERVER_CHAT_FORMAT" ]]; then
-    chat_format_args=(--chat_format "$LLAMA_SERVER_CHAT_FORMAT")
+  if [[ -n "$chat_format_arg" ]]; then
+    chat_format_args=(--chat_format "$chat_format_arg")
   fi
 
   if [[ -n "$LLAMA_SERVER_CUDA_VISIBLE_DEVICES" ]]; then
@@ -975,7 +994,7 @@ usage() {
 Usage: $0 <command> [args]
 
 Commands:
-  start single [model] Start single server (optional model name/path)
+  start single [model] [--chat-format fmt] Start single server (optional model name/path)
   start multi          Start multiple servers from $LLAMA_MULTI_CONFIG
   restart [model]      Restart current mode (single or multi)
   stop                 Stop current mode (single or multi)

@@ -9,6 +9,11 @@ Thin wrapper around `llama_cpp.server` that runs **one GGUF model** and exposes 
 ./console.sh start single
 ```
 
+To set a chat template in single mode:
+```bash
+./console.sh start single --chat-format chatml
+```
+
 ## Layout
 
 - `config/` for multi-model and proxy routing YAML.

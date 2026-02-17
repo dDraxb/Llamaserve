@@ -46,6 +46,7 @@ Models must be **GGUF** files placed in `models/`.
 
 For sharded GGUF (e.g., `*-00001-of-00003.gguf`), place all shards in a subfolder under `models/`. The CLI will show the folder as a single “sharded” option and pick the `00001` shard automatically.
 If shards are placed directly in `models/`, the CLI will still group them, but it will warn and recommend moving them into a subfolder to avoid clutter and accidental selection errors.
+If a model emits raw `<|channel|>` / `<|assistant|>` markers, set `chat_format` per instance in `config/models.yaml` to the correct template for that GGUF. If `chat_format` is omitted, llama-cpp uses its default/auto behavior.
 
 Example (Hugging Face CLI using `hf`):
 ```bash

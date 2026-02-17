@@ -74,4 +74,6 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - `status` now repairs missing PID files for single and multi mode by detecting listeners on configured ports (use `--strict` to disable).
 - Model picker now groups sharded GGUF and allows selecting folders with shards (auto-selects the `00001` shard).
 - CLI now warns when sharded GGUF files are placed in the root `models/` directory.
+- Added `LLAMA_SERVER_CHAT_FORMAT` (and per-instance `chat_format`) to apply the correct chat template for models that emit raw markers.
+- Install no longer writes `LLAMA_SERVER_CHAT_FORMAT`; prefer per-instance `chat_format` in `config/models.yaml`.
 - Added route host override for Docker proxy routing.

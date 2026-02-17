@@ -40,6 +40,7 @@ LLAMA_SERVER_HOST="${LLAMA_SERVER_HOST:-127.0.0.1}"
 LLAMA_SERVER_PORT="${LLAMA_SERVER_PORT:-8002}"
 LLAMA_SERVER_DEFAULT_N_CTX="${LLAMA_SERVER_DEFAULT_N_CTX:-8192}"
 LLAMA_SERVER_DEFAULT_N_GPU_LAYERS="${LLAMA_SERVER_DEFAULT_N_GPU_LAYERS:--1}"
+LLAMA_SERVER_CHAT_FORMAT="${LLAMA_SERVER_CHAT_FORMAT:-}"
 LLAMA_SERVER_API_KEY="${LLAMA_SERVER_API_KEY:-}"
 LLAMA_SERVER_PID_FILE="${LLAMA_SERVER_PID_FILE:-$RUNTIME_DIR/llama_server.pid}"
 LLAMA_SERVER_MODEL_FILE="${LLAMA_SERVER_MODEL_FILE:-$RUNTIME_DIR/llama_server.model}"
@@ -415,6 +416,7 @@ start_instance() {
   local n_ctx="$6"
   local n_gpu_layers="$7"
   local api_key="$8"
+  local chat_format="$9"
 
   mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
 
@@ -443,17 +445,24 @@ start_instance() {
   local effective_port="$port"
   local effective_n_ctx="$n_ctx"
   local effective_n_gpu_layers="$n_gpu_layers"
+  local effective_chat_format="$chat_format"
 
   [[ -z "$effective_host" ]] && effective_host="$LLAMA_SERVER_HOST"
   [[ -z "$effective_port" ]] && effective_port="$LLAMA_SERVER_PORT"
   [[ -z "$effective_n_ctx" ]] && effective_n_ctx="$LLAMA_SERVER_DEFAULT_N_CTX"
   [[ -z "$effective_n_gpu_layers" ]] && effective_n_gpu_layers="$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS"
+  [[ -z "$effective_chat_format" ]] && effective_chat_format="$LLAMA_SERVER_CHAT_FORMAT"
 
   info "Starting instance [$name]..."
   info "  Model: $model_path"
   info "  Bind : $effective_host"
   info "  Port : $effective_port"
   info "  Log  : $log_file"
+
+  local -a chat_format_args=()
+  if [[ -n "$effective_chat_format" ]]; then
+    chat_format_args=(--chat_format "$effective_chat_format")
+  fi
 
   if [[ -n "$gpus" ]]; then
     CUDA_VISIBLE_DEVICES="$gpus" \
@@ -463,7 +472,8 @@ start_instance() {
         --port "$effective_port" \
         --n_ctx "$effective_n_ctx" \
         --n_gpu_layers "$effective_n_gpu_layers" \
-        --api_key "$effective_api_key" >>"$log_file" 2>&1 &
+        --api_key "$effective_api_key" \
+        "${chat_format_args[@]}" >>"$log_file" 2>&1 &
   else
     "$PYTHON_BIN" -m llama_cpp.server \
       --model "$model_path" \
@@ -471,7 +481,8 @@ start_instance() {
       --port "$effective_port" \
       --n_ctx "$effective_n_ctx" \
       --n_gpu_layers "$effective_n_gpu_layers" \
-      --api_key "$effective_api_key" >>"$log_file" 2>&1 &
+      --api_key "$effective_api_key" \
+      "${chat_format_args[@]}" >>"$log_file" 2>&1 &
   fi
 
   echo $! > "$(instance_pid_file "$name")"
@@ -532,7 +543,8 @@ for inst in instances:
     n_ctx = str(inst.get("n_ctx") or "").strip()
     n_gpu_layers = str(inst.get("n_gpu_layers") or "").strip()
     api_key = (inst.get("api_key") or "").strip()
-    print("|".join([name, model, host, port, gpus, n_ctx, n_gpu_layers, api_key]))
+    chat_format = (inst.get("chat_format") or "").strip()
+    print("|".join([name, model, host, port, gpus, n_ctx, n_gpu_layers, api_key, chat_format]))
 PY
 }
 
@@ -542,12 +554,12 @@ start_multi() {
   mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
 
   local entry
-  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key; do
+  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format; do
     if is_instance_running "$name"; then
       err "Instance already running, skipping: $name"
       continue
     fi
-    start_instance "$name" "$model" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key"
+    start_instance "$name" "$model" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key" "$chat_format"
   done < <(parse_multi_config)
 }
 
@@ -576,7 +588,7 @@ status_multi() {
   echo "Mode : multi"
   if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
     local entry
-    while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key; do
+  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format; do
       local effective_port="${port:-$LLAMA_SERVER_PORT}"
       if ! is_instance_running "$name" && [[ "$strict" -eq 0 ]]; then
         repair_instance_pid "$name" "$effective_port" || true
@@ -827,6 +839,11 @@ start_server() {
   model_path="$(resolve_model_path "${1:-}")"
   warn_large_model "$model_path" "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS" "$LLAMA_SERVER_CUDA_VISIBLE_DEVICES"
 
+  local -a chat_format_args=()
+  if [[ -n "$LLAMA_SERVER_CHAT_FORMAT" ]]; then
+    chat_format_args=(--chat_format "$LLAMA_SERVER_CHAT_FORMAT")
+  fi
+
   if [[ -n "$LLAMA_SERVER_CUDA_VISIBLE_DEVICES" ]]; then
     export CUDA_VISIBLE_DEVICES="$LLAMA_SERVER_CUDA_VISIBLE_DEVICES"
   fi
@@ -843,7 +860,8 @@ start_server() {
     --port "$LLAMA_SERVER_PORT" \
     --n_ctx "$LLAMA_SERVER_DEFAULT_N_CTX" \
     --n_gpu_layers "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS" \
-    --api_key "$LLAMA_SERVER_API_KEY" >>"$LOG_FILE" 2>&1 &
+    --api_key "$LLAMA_SERVER_API_KEY" \
+    "${chat_format_args[@]}" >>"$LOG_FILE" 2>&1 &
   echo $! > "$LLAMA_SERVER_PID_FILE"
   echo "$model_path" > "$LLAMA_SERVER_MODEL_FILE"
 

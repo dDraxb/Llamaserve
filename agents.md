@@ -40,6 +40,7 @@ From the perspective of this file (`agents.md`), the project root looks like:
     *.gguf          # one or more GGUF LLM model files (downloaded or copied here)
 
 Note: For sharded GGUF (e.g., `*-00001-of-00003.gguf`), place all shards in a subfolder under `models/` so the CLI shows a single “sharded” option and picks the `00001` shard.
+If a model outputs raw `<|channel|>` markers, set `chat_format` per instance in `config/models.yaml` to the correct template for that GGUF. If omitted, llama-cpp uses its default/auto behavior.
 
 ---
 

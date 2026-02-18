@@ -838,6 +838,7 @@ start_server() {
   local model_path
   local model_arg=""
   local chat_format_arg=""
+  local use_chat_template=0
   local arg
   while [[ $# -gt 0 ]]; do
     arg="$1"
@@ -845,6 +846,9 @@ start_server() {
       --chat-format)
         shift || true
         chat_format_arg="${1:-}"
+        ;;
+      --use-chat-template)
+        use_chat_template=1
         ;;
       *)
         if [[ -z "$model_arg" ]]; then
@@ -861,6 +865,9 @@ start_server() {
   local -a chat_format_args=()
   if [[ -n "$chat_format_arg" ]]; then
     chat_format_args=(--chat_format "$chat_format_arg")
+  fi
+  if [[ "$use_chat_template" -eq 1 ]]; then
+    chat_format_args+=(--use_chat_template)
   fi
 
   if [[ -n "$LLAMA_SERVER_CUDA_VISIBLE_DEVICES" ]]; then
@@ -994,7 +1001,7 @@ usage() {
 Usage: $0 <command> [args]
 
 Commands:
-  start single [model] [--chat-format fmt] Start single server (optional model name/path)
+  start single [model] [--chat-format fmt] [--use-chat-template] Start single server (optional model name/path)
   start multi          Start multiple servers from $LLAMA_MULTI_CONFIG
   restart [model]      Restart current mode (single or multi)
   stop                 Stop current mode (single or multi)

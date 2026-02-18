@@ -11,7 +11,7 @@ Thin wrapper around `llama_cpp.server` that runs **one GGUF model** and exposes 
 
 To set a chat template in single mode:
 ```bash
-./console.sh start single --chat-format chatml
+./console.sh start single --chat-format chat_template.default --use-chat-template
 ```
 
 ## Layout
@@ -22,7 +22,7 @@ To set a chat template in single mode:
 
 ## Multi-model (multiple servers)
 
-This project is single-model by default. To run **multiple models**, start multiple `llama_cpp.server` processes via the CLI.
+This project is single-model by default. To run **multiple models**, start multiple `llama_cpp.server` processes via the CLI. `start single` is interactive, while `start multi` is non-interactive and uses `config/models.yaml` exactly as written.
 
 1) Create a config:
 ```bash

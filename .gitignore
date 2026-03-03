@@ -1,4 +1,3 @@
-
 .idea
 runtime/.venv/
 runtime/llama_server.host
@@ -8,8 +7,10 @@ runtime/config.env
 runtime/llama_proxy.pid
 runtime/llama_server.model
 runtime/llama_server.pid
+runtime/instances/
 config/models.yaml
 config/proxy_routes.yaml
 logs/
+models/
 data/postgres/
 .env

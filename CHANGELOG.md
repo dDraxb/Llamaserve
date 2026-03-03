@@ -1,93 +1,100 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project.
 
-The format is based on Keep a Changelog, and this project follows semantic versioning.
-
-## [Unreleased]
-
-## [2026-01-26]
-### Added
-- Full CLI flow in `console.sh` for `start`, `stop`, `restart`, and `status`.
-- Interactive model selection and optional model argument support.
-- Model tracking file to improve status output.
-- API key enforcement before server startup.
+## 2026-03-04
 
 ### Changed
-- Fixed shebang placement in `console.sh` and `runtime/install.sh`.
-- Completed fallback model download in `runtime/install.sh`.
-- Improved logging and PID handling for server lifecycle.
+- Refactored CLI internals into modules:
+  - `bin/lib/common.sh`
+  - `bin/lib/proxy.sh`
+  - `bin/lib/server.sh`
+- `console.sh` now acts as orchestration entrypoint sourcing shared modules.
+- `bin/smoke_test.sh` supports `--ci` contract mode and `--full`.
+- macOS runtime enforcement added at startup:
+  - Python 3.11/3.12 required
+  - `llama-cpp-python==0.2.90` enforced by default
+  - explicit override via `LLAMA_ALLOW_UNPINNED=1`
+
+### Added
+- CI workflows:
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/compatibility-matrix.yml`
+- `bin/preflight.sh` and `./console.sh preflight`.
+- `docs/compatibility.md`.
+- Second small GGUF model support in catalog (`Qwen2.5-0.5B-Instruct-Q4_K_M.gguf`) for real multi-instance validation.
 
 ### Fixed
-- Resolved `console.sh` syntax errors in the venv check and status output.
-- Added a `huggingface_hub` CLI fallback when `huggingface-cli` is missing.
-- Corrected the fallback module invocation for Hugging Face CLI in venv.
-- Switched the fallback download to `hf_hub_download` when no CLI entrypoint exists.
-- Fixed fallback filename to match the repo file casing on Hugging Face.
-- Updated fallback GGUF filename to `tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf`.
-- Fixed model presence checks to ignore non-`.gguf` files (like `.cache`).
-- Added optional interactive prompt for `HF_TOKEN` during fallback downloads.
-- Auto-selects the only available GGUF model instead of prompting without a list.
-- Fixed llama server flag name to `--api_key` to match `llama_cpp.server` CLI.
-- Fixed single-model auto-select message contaminating the model path.
-- Added `README.md` and documented test curl commands in both README and `agents.md`.
-- Added Postgres-backed auth proxy with per-user API keys and a user management CLI.
-- Added per-user rate limiting and request logging to the proxy.
-- Expanded request logging with latency and byte counts.
-- Documented GGUF-only model download example using `hf` CLI.
-- Added docker-compose Postgres service for auth proxy storage.
-- Moved Postgres defaults to `.env.example` and parameterized `docker-compose.yml`.
-- Renamed Postgres env vars to `POSTGRES_AUTH_*` for clarity.
-- Install script now auto-starts Postgres via docker compose when available.
-- User CLI now loads `.env` and ignores placeholder DB URLs.
-- Auth proxy now loads `.env`/`runtime/config.env` and builds DB URL from `POSTGRES_AUTH_*`.
-- Proxy and CLI now use `.env` only for DB config.
-- Proxy loads `runtime/config.env` for backend settings while still using `.env` for DB.
-- Fixed proxy streaming to avoid `httpx.StreamClosed` errors.
-- Fixed httpx streaming call for older httpx versions.
-- Documented that conversation management is client-side.
-- Added OpenAI chat/completions parameter support table.
-- Added multi-model support via `runtime/models.csv` and new CLI commands.
-- Updated `start` to require explicit `single` or `multi` mode.
-- Added proxy routing via `runtime/proxy_routes.csv` and improved CLI ergonomics for multi-mode control.
-- Made restart/stop/status mode-aware (no explicit mode required).
-- Status now prints the current mode (single or multi).
-- Status prints `Mode : none` when no servers are running.
-- Switched multi-model and proxy routing configs from CSV to YAML.
-- Fixed Windows venv path handling for pip/python in install and console scripts.
-- Install now skips dockerized Postgres if the configured port is already in use.
-- Hardened env file parsing to ignore invalid lines.
-- Fixed install script local variable usage outside functions.
-- Docker compose now uses `POSTGRES_AUTH_PORT`, and install auto-picks a free port when needed.
-- When 5432 is busy, install now picks a free port starting at 15432.
-- Standardized defaults to proxy 8001 and backend 8002 (backend remains private).
-- Install now migrates legacy 8000 defaults to the 8001/8002 layout.
-- Replaced `mapfile` usage for better compatibility with older bash versions.
-- Fixed model selection output contaminating the model path and improved restart order with proxy enabled.
-- Added optional Docker-based auth proxy service.
-- Fixed Docker proxy to use Postgres container port 5432.
-- Clarified bind vs client URLs in console output and aligned proxy backend default to 8002.
-- Split runtime clutter into top-level `config/`, `logs/`, and `data/postgres/`.
-- Updated docker-compose and defaults to use the new data/log/config paths.
-- Documentation now recommends Docker proxy as the default (local proxy remains optional).
-- Fixed `status` to avoid reporting multi-mode just because a config exists; it now checks running instances and rejects extra args.
-- `status` now repairs missing PID files for single and multi mode by detecting listeners on configured ports (use `--strict` to disable).
-- Model picker now groups sharded GGUF and allows selecting folders with shards (auto-selects the `00001` shard).
-- CLI now warns when sharded GGUF files are placed in the root `models/` directory.
-- Added `LLAMA_SERVER_CHAT_FORMAT` (and per-instance `chat_format`) to apply the correct chat template for models that emit raw markers.
-- Install no longer writes `LLAMA_SERVER_CHAT_FORMAT`; prefer per-instance `chat_format` in `config/models.yaml`.
-- Added `--chat-format` flag for `start single` to set chat templates without editing config.env.
-- Added `--use-chat-template` flag for `start single` to force GGUF chat templates when available.
-- `config/models.yaml` is now a shared catalog for both single and multi mode, with interactive selection for each.
-- Fixed empty CLI arg handling when no chat_format/no_mmap/flash_attn flags are set.
-- Added `--no-prompt` for `start single` and `start multi`, and moved prompts to stdout for ordered output.
-- Filtered empty args before launching llama_cpp.server to avoid "unrecognized arguments:" exits.
-- Added route host override for Docker proxy routing.
-- `no_mmap: true` now maps to `--use_mmap false` and `flash_attn: true` maps to `--flash_attn true` (per llama_cpp.server args).
-- Added `disable_metal` per-instance flag and `LLAMA_SERVER_DISABLE_METAL` to disable Metal on macOS.
-- `--use-chat-template` now sets `chat_format=chat_template.default` instead of passing an unsupported server flag.
-- Fixed CLI argument forwarding so `start single`/`start multi`/`restart` pass all flags (e.g. `--disable-metal`, `--no-prompt`).
-- On macOS, installer now pins `llama-cpp-python[server]==0.2.90` to avoid 0.3.16 Metal startup crashes.
-- `start-proxy` now preflights the proxy port and fails fast with clear guidance when Docker proxy already owns the port.
-- `start-proxy` now detects early process exit and surfaces proxy log tail immediately.
-- Added `bin/smoke_test.sh` as a one-command standard validation for single/multi/proxy flows.
+- Model catalog parsing preserves explicit zero values (for example `n_gpu_layers: 0`).
+- Single/multi startup now fails fast on early exit and clears stale PID files.
+- Proactive macOS Metal probe with explicit diagnostics before startup.
+- Native Windows shell guardrails (Git Bash/MSYS/Cygwin): fail fast with WSL2 guidance.
+- Install/runtime Python version checks hardened in `runtime/install.sh`.
+
+## 2026-03-03
+
+- `2256ffe` refactor: single/multi handling made uniform via config and smoke test workflow.
+
+## 2026-02-18
+
+- `2333687` Added chat template flag and clearer multi-start documentation.
+
+## 2026-02-17
+
+- `34ce521` Added chat format for single start.
+- `ff9dc92` Added chat template handling in output flow.
+- `b8e4792` Fixed `rg` usage issues.
+- `eea2296` Fixed missing `rg` dependency handling.
+- `01cbd52` Added shared model support.
+
+## 2026-02-10
+
+- `7adf897` Fixed faulty `status` results.
+- `0db621c` Added proxy support via Docker.
+
+## 2026-02-09
+
+- `8b7e1db` Refactored paths to reduce runtime folder clutter.
+
+## 2026-02-06
+
+- `df6fd64` Fixed local IP/bind wiring and improved Docker proxy behavior.
+
+## 2026-02-02
+
+- `cfa9516` Fixed broken Windows venv path handling.
+
+## 2026-01-28
+
+- `d3eb173` Added multi-server support and auth proxy integration.
+
+## 2026-01-27
+
+- `754b376` Fixed model selection flow at start.
+- `87f81a8` Updated OpenAI API documentation.
+
+## 2026-01-26
+
+- `1bd912d` Fixed stream call HTTP handling.
+- `a486695` Fixed proxy streaming behavior.
+- `bfdd504` Added missing runtime config.
+- `6a570eb` Fixed DB credential import handling.
+- `651dfef` Fixed missing DB key.
+- `d7ee416` Fixed Postgres connection error.
+- `7c24859` Added Docker database startup.
+- `9b1d97b` Added user access management via database.
+- `5e7a41a` Added model download example.
+- `89f000b` Added user bearer key management and request logging.
+- `74d2e3b` Fixed model selection return.
+- `0db0fd6` Fixed command flag handling.
+- `439bc57` Fixed model selection on start.
+- `b5fcea4` Added Hugging Face token prompt.
+- `4fd1e14` Fixed available-model detection.
+- `386b265` Fixed Hugging Face fallback path.
+- `26a7aa4` Hugging Face CLI fallback debug updates.
+- `1b7d478` Hugging Face command fix attempt.
+- `d6cdc04` Updated `.gitignore`.
+- `c810c33` Fixed broken Hugging Face fallback.
+- `29ebc6a` Fixed syntax error (`unexpected end of file`).
+- `f2fdb98` Initial project push.
+- `7540169` Create `.gitignore`.

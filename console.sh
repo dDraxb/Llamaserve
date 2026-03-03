@@ -80,63 +80,24 @@ LOG_FILE="$LLAMA_SERVER_LOG_DIR/llama_server.log"
 PROXY_LOG_FILE="$LLAMA_SERVER_LOG_DIR/llama_proxy.log"
 LLAMA_SERVER_BACKEND_URL="${LLAMA_SERVER_BACKEND_URL:-http://127.0.0.1:$LLAMA_SERVER_PORT}"
 INSTANCES_DIR="$RUNTIME_DIR/instances"
+LIB_DIR="$ROOT_DIR/bin/lib"
+
+if [[ -f "$LIB_DIR/common.sh" ]]; then
+  # shellcheck disable=SC1090
+  source "$LIB_DIR/common.sh"
+fi
+if [[ -f "$LIB_DIR/proxy.sh" ]]; then
+  # shellcheck disable=SC1090
+  source "$LIB_DIR/proxy.sh"
+fi
+if [[ -f "$LIB_DIR/server.sh" ]]; then
+  # shellcheck disable=SC1090
+  source "$LIB_DIR/server.sh"
+fi
 
 ###############################################################################
 # Helpers
 ###############################################################################
-
-err() {
-  echo "ERROR: $*" >&2
-}
-
-info() {
-  echo ">>> $*"
-}
-
-warn_large_model() {
-  local model_path="$1"
-  local n_gpu_layers="$2"
-  local gpus="$3"
-  if [[ -f "$model_path" ]]; then
-    local size_bytes
-    size_bytes="$(stat -f%z "$model_path" 2>/dev/null || stat -c%s "$model_path" 2>/dev/null || echo 0)"
-    if [[ "$size_bytes" -gt 12000000000 ]]; then
-      if [[ -z "$gpus" ]] || [[ "$n_gpu_layers" == "-1" ]]; then
-        echo "WARNING: Large model detected (~$((size_bytes / 1024 / 1024 / 1024))GB). Ensure you have enough VRAM/RAM and GPU layers set appropriately." >&2
-      fi
-    fi
-  fi
-}
-
-is_truthy() {
-  case "$(echo "${1:-}" | tr '[:upper:]' '[:lower:]')" in
-    1|true|yes|on) return 0 ;;
-  esac
-  return 1
-}
-trim() {
-  local s="$1"
-  s="${s#"${s%%[![:space:]]*}"}"
-  s="${s%"${s##*[![:space:]]}"}"
-  echo "$s"
-}
-
-client_host_for_bind() {
-  local host="$1"
-  if [[ "$host" == "0.0.0.0" ]]; then
-    echo "127.0.0.1"
-  else
-    echo "$host"
-  fi
-}
-
-client_url_for_bind() {
-  local host="$1"
-  local port="$2"
-  local client_host
-  client_host="$(client_host_for_bind "$host")"
-  echo "http://$client_host:$port/v1"
-}
 
 is_server_running() {
   local strict="${1:-0}"
@@ -147,7 +108,7 @@ is_server_running() {
   if [[ -f "$LLAMA_SERVER_PID_FILE" ]]; then
     local pid
     pid="$(cat "$LLAMA_SERVER_PID_FILE" 2>/dev/null || true)"
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && is_llama_process "$pid" && is_pid_listening_on_port "$pid" "$effective_port"; then
       return 0
     else
       rm -f "$LLAMA_SERVER_PID_FILE"
@@ -174,47 +135,6 @@ is_server_running() {
   fi
 }
 
-is_proxy_running() {
-  if [[ -f "$LLAMA_PROXY_PID_FILE" ]]; then
-    local pid
-    pid="$(cat "$LLAMA_PROXY_PID_FILE" 2>/dev/null || true)"
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-      return 0
-    else
-      rm -f "$LLAMA_PROXY_PID_FILE"
-      return 1
-    fi
-  else
-    return 1
-  fi
-}
-
-find_pid_by_port() {
-  local port="$1"
-  if command -v lsof >/dev/null 2>&1; then
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $2; exit}'
-    return 0
-  fi
-  if command -v ss >/dev/null 2>&1; then
-    ss -ltnp "sport = :$port" 2>/dev/null | sed -n 's/.*pid=\\([0-9]*\\).*/\\1/p' | head -n1
-    return 0
-  fi
-  return 1
-}
-
-is_llama_process() {
-  local pid="$1"
-  if command -v ps >/dev/null 2>&1; then
-    local cmd
-    cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-    if [[ -z "$cmd" ]]; then
-      return 0
-    fi
-    echo "$cmd" | grep -q "llama_cpp.server"
-    return $?
-  fi
-  return 0
-}
 
 has_running_instances() {
   if [[ ! -d "$INSTANCES_DIR" ]]; then
@@ -225,7 +145,7 @@ has_running_instances() {
     [[ -e "$pid_file" ]] || continue
     local pid
     pid="$(cat "$pid_file" 2>/dev/null || true)"
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && is_llama_process "$pid"; then
       return 0
     fi
   done
@@ -299,19 +219,29 @@ PY
     exit 1
   fi
   }
-}
 
-ensure_proxy_deps() {
-  "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1 || {
-import importlib
-for m in ("fastapi", "uvicorn", "httpx", "psycopg2"):
-    importlib.import_module(m)
+  if [[ "$(uname -s)" == "Darwin" ]] && [[ "${LLAMA_ALLOW_UNPINNED:-0}" != "1" ]]; then
+    local runtime_info
+    runtime_info="$("$PYTHON_BIN" - <<'PY'
+import sys
+import llama_cpp
+print(f"{sys.version_info.major}.{sys.version_info.minor}|{llama_cpp.__version__}")
 PY
-  if [[ $? -ne 0 ]]; then
-    err "Proxy deps missing in venv. Re-run: $RUNTIME_DIR/install.sh"
-    exit 1
+)"
+    local py_mm="${runtime_info%%|*}"
+    local llama_ver="${runtime_info##*|}"
+    if [[ "$py_mm" != "3.11" && "$py_mm" != "3.12" ]]; then
+      err "Unsupported Python on macOS: $py_mm (expected 3.11 or 3.12)."
+      err "Rebuild runtime venv with Python 3.12 and rerun install."
+      exit 1
+    fi
+    if [[ "$llama_ver" != "0.2.90" ]]; then
+      err "Unsupported llama-cpp-python on macOS: $llama_ver (expected 0.2.90)."
+      err "Run: ./runtime/install.sh"
+      err "Set LLAMA_ALLOW_UNPINNED=1 only if you intentionally want an unpinned build."
+      exit 1
+    fi
   fi
-  }
 }
 
 load_env_file() {
@@ -333,17 +263,6 @@ load_env_file() {
       export "$key=$value"
     fi
   done < "$file"
-}
-
-ensure_db_url() {
-  load_env_file "$ROOT_DIR/.env"
-  if [[ -z "${POSTGRES_AUTH_USER:-}" ]] || [[ -z "${POSTGRES_AUTH_PASSWORD:-}" ]] || [[ -z "${POSTGRES_AUTH_DB:-}" ]]; then
-    err "Database config not set. Provide POSTGRES_AUTH_USER/POSTGRES_AUTH_PASSWORD/POSTGRES_AUTH_DB in .env."
-    exit 1
-  fi
-  local host="${POSTGRES_AUTH_HOST:-localhost}"
-  local port="${POSTGRES_AUTH_PORT:-5432}"
-  export LLAMA_SERVER_DATABASE_URL="postgresql://${POSTGRES_AUTH_USER}:${POSTGRES_AUTH_PASSWORD}@${host}:${port}/${POSTGRES_AUTH_DB}"
 }
 
 ensure_at_least_one_model() {
@@ -383,579 +302,6 @@ PY
   fi
 
   info "Fallback model downloaded into: $LLAMA_SERVER_MODELS_DIR"
-}
-
-instance_pid_file() {
-  echo "$INSTANCES_DIR/$1.pid"
-}
-
-instance_model_file() {
-  echo "$INSTANCES_DIR/$1.model"
-}
-
-instance_log_file() {
-  echo "$LLAMA_SERVER_LOG_DIR/llama_server_$1.log"
-}
-
-is_instance_running() {
-  local name="$1"
-  local pid_file
-  pid_file="$(instance_pid_file "$name")"
-  if [[ -f "$pid_file" ]]; then
-    local pid
-    pid="$(cat "$pid_file" 2>/dev/null || true)"
-    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-      return 0
-    else
-      rm -f "$pid_file"
-      return 1
-    fi
-  fi
-  return 1
-}
-
-repair_instance_pid() {
-  local name="$1"
-  local port="$2"
-  if [[ -z "$port" ]]; then
-    return 1
-  fi
-  local detected_pid
-  detected_pid="$(find_pid_by_port "$port")"
-  if [[ -n "$detected_pid" ]] && is_llama_process "$detected_pid"; then
-    echo "$detected_pid" > "$(instance_pid_file "$name")"
-    return 0
-  fi
-  return 1
-}
-
-start_instance() {
-  local name="$1"
-  local model_input="$2"
-  local host="$3"
-  local port="$4"
-  local gpus="$5"
-  local n_ctx="$6"
-  local n_gpu_layers="$7"
-  local api_key="$8"
-  local chat_format="$9"
-  local no_mmap="${10:-}"
-  local flash_attn="${11:-}"
-  local disable_metal="${12:-}"
-
-  mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
-
-  if is_instance_running "$name"; then
-    err "Instance already running: $name"
-    return 1
-  fi
-
-  local model_path
-  model_path="$(resolve_model_path "$model_input")"
-  warn_large_model "$model_path" "$n_gpu_layers" "$gpus"
-
-  local log_file
-  log_file="$(instance_log_file "$name")"
-
-  local effective_api_key="$api_key"
-  if [[ -z "$effective_api_key" ]]; then
-    effective_api_key="$LLAMA_SERVER_API_KEY"
-  fi
-  if [[ -z "$effective_api_key" ]]; then
-    err "API key missing for instance: $name"
-    return 1
-  fi
-
-  local effective_host="$host"
-  local effective_port="$port"
-  local effective_n_ctx="$n_ctx"
-  local effective_n_gpu_layers="$n_gpu_layers"
-  local effective_chat_format="$chat_format"
-  local effective_no_mmap="$no_mmap"
-  local effective_flash_attn="$flash_attn"
-  local effective_disable_metal="$disable_metal"
-
-  [[ -z "$effective_host" ]] && effective_host="$LLAMA_SERVER_HOST"
-  [[ -z "$effective_port" ]] && effective_port="$LLAMA_SERVER_PORT"
-  [[ -z "$effective_n_ctx" ]] && effective_n_ctx="$LLAMA_SERVER_DEFAULT_N_CTX"
-  [[ -z "$effective_n_gpu_layers" ]] && effective_n_gpu_layers="$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS"
-  [[ -z "$effective_chat_format" ]] && effective_chat_format="$LLAMA_SERVER_CHAT_FORMAT"
-  [[ -z "$effective_disable_metal" ]] && effective_disable_metal="$LLAMA_SERVER_DISABLE_METAL"
-  if is_truthy "$effective_disable_metal" && [[ "$effective_n_gpu_layers" == "-1" ]]; then
-    # Disable full GPU offload when Metal is disabled on macOS.
-    effective_n_gpu_layers="0"
-  fi
-
-  info "Starting instance [$name]..."
-  info "  Model: $model_path"
-  info "  Bind : $effective_host"
-  info "  Port : $effective_port"
-  info "  Log  : $log_file"
-
-  local -a chat_format_args=()
-  if [[ -n "$effective_chat_format" ]]; then
-    chat_format_args=(--chat_format "$effective_chat_format")
-  fi
-  if [[ -n "$effective_no_mmap" ]]; then
-    chat_format_args+=(--use_mmap false)
-  fi
-  if [[ -n "$effective_flash_attn" ]]; then
-    chat_format_args+=(--flash_attn true)
-  fi
-
-  local -a server_cmd=(
-    "$PYTHON_BIN" -m llama_cpp.server
-    --model "$model_path"
-    --host "$effective_host"
-    --port "$effective_port"
-    --n_ctx "$effective_n_ctx"
-    --n_gpu_layers "$effective_n_gpu_layers"
-    --api_key "$effective_api_key"
-  )
-  if [[ "${#chat_format_args[@]}" -gt 0 ]]; then
-    server_cmd+=("${chat_format_args[@]}")
-  fi
-  local -a clean_cmd=()
-  local cmd_arg
-  for cmd_arg in "${server_cmd[@]}"; do
-    [[ -n "$cmd_arg" ]] && clean_cmd+=("$cmd_arg")
-  done
-  {
-    printf "CMD:"
-    for cmd_arg in "${clean_cmd[@]}"; do
-      printf " %q" "$cmd_arg"
-    done
-    printf "\n"
-  } >>"$log_file"
-
-  local -a env_cmd=()
-  if [[ -n "$gpus" ]]; then
-    env_cmd+=(CUDA_VISIBLE_DEVICES="$gpus")
-  fi
-  if is_truthy "$effective_disable_metal"; then
-    env_cmd+=(GGML_METAL=0 LLAMA_METAL=0)
-  fi
-
-  if [[ "${#env_cmd[@]}" -gt 0 ]]; then
-    env "${env_cmd[@]}" "${clean_cmd[@]}" >>"$log_file" 2>&1 &
-  else
-    "${clean_cmd[@]}" >>"$log_file" 2>&1 &
-  fi
-
-  echo $! > "$(instance_pid_file "$name")"
-  echo "$model_path" > "$(instance_model_file "$name")"
-  info "Instance [$name] started with PID $(cat "$(instance_pid_file "$name")")"
-
-  local started_pid
-  started_pid="$(cat "$(instance_pid_file "$name")")"
-  sleep 0.25
-  if ! kill -0 "$started_pid" 2>/dev/null; then
-    err "Instance [$name] exited early. Check log: $log_file"
-    tail -n 20 "$log_file" >&2 || true
-  fi
-}
-
-stop_instance() {
-  local name="$1"
-  local pid_file
-  pid_file="$(instance_pid_file "$name")"
-  if [[ ! -f "$pid_file" ]]; then
-    info "Instance not running: $name"
-    return 0
-  fi
-  local pid
-  pid="$(cat "$pid_file")"
-  info "Stopping instance [$name] (PID $pid)..."
-  kill "$pid" 2>/dev/null || true
-
-  local i
-  for i in {1..20}; do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      rm -f "$pid_file"
-      rm -f "$(instance_model_file "$name")"
-      info "Instance [$name] stopped."
-      return 0
-    fi
-    sleep 0.25
-  done
-
-  err "Instance [$name] did not stop gracefully; sending SIGKILL."
-  kill -9 "$pid" 2>/dev/null || true
-  rm -f "$pid_file"
-  rm -f "$(instance_model_file "$name")"
-}
-
-parse_multi_config() {
-  if [[ ! -f "$LLAMA_MULTI_CONFIG" ]]; then
-    err "Multi config not found: $LLAMA_MULTI_CONFIG"
-    exit 1
-  fi
-  "$PYTHON_BIN" - <<PY
-import sys, yaml
-from pathlib import Path
-
-path = Path(r"""$LLAMA_MULTI_CONFIG""")
-data = yaml.safe_load(path.read_text()) or {}
-instances = data.get("models") or data.get("instances") or []
-for inst in instances:
-    name = (inst.get("name") or "").strip()
-    if not name:
-        continue
-    model = (inst.get("model") or "").strip()
-    host = (inst.get("host") or "").strip()
-    port = str(inst.get("port") or "").strip()
-    gpus = (inst.get("cuda_visible_devices") or "").strip()
-    n_ctx = str(inst.get("n_ctx") or "").strip()
-    n_gpu_layers = str(inst.get("n_gpu_layers") or "").strip()
-    api_key = (inst.get("api_key") or "").strip()
-    chat_format = (inst.get("chat_format") or "").strip()
-    no_mmap = str(inst.get("no_mmap") or "").strip().lower()
-    flash_attn = str(inst.get("flash_attn") or "").strip().lower()
-    disable_metal = str(inst.get("disable_metal") or "").strip().lower()
-    def to_flag(value):
-        return "1" if value in ("1", "true", "yes", "on") else ""
-    print("|".join([name, model, host, port, gpus, n_ctx, n_gpu_layers, api_key, chat_format, to_flag(no_mmap), to_flag(flash_attn), to_flag(disable_metal)]))
-PY
-}
-
-start_multi() {
-  ensure_venv_and_deps
-  ensure_at_least_one_model
-  mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
-
-  local no_prompt=0
-  local arg
-  while [[ $# -gt 0 ]]; do
-    arg="$1"
-    case "$arg" in
-      --no-prompt)
-        no_prompt=1
-        ;;
-      *)
-        err "Unknown option for start multi: $arg"
-        usage
-        exit 1
-        ;;
-    esac
-    shift || true
-  done
-
-  local -a entries=()
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && entries+=("$line")
-  done < <(parse_multi_config)
-
-  if [[ "${#entries[@]}" -eq 0 ]]; then
-    err "No models defined in $LLAMA_MULTI_CONFIG"
-    exit 1
-  fi
-
-  local selection=""
-  if [[ -t 0 ]] && [[ "$no_prompt" -eq 0 ]]; then
-    echo "Available models:"
-    local i
-    for i in "${!entries[@]}"; do
-      IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"${entries[$i]}"
-      printf "  [%d] %s (%s)\n" "$((i + 1))" "$name" "$(basename "$model")"
-    done
-    while true; do
-      read -r -p "Select models [e.g., 1,2 or all]: " selection
-      [[ -z "$selection" ]] && selection="all"
-      if [[ "$selection" =~ ^(all|a|\*)$ ]]; then
-        selection="all"
-        break
-      fi
-      local valid=1
-      local token
-      for token in $(echo "$selection" | tr ',' ' '); do
-        if [[ ! "$token" =~ ^[0-9]+$ ]] || ((token < 1 || token > ${#entries[@]})); then
-          valid=0
-          break
-        fi
-      done
-      if [[ "$valid" -eq 1 ]]; then
-        break
-      fi
-      err "Invalid selection."
-    done
-  else
-    selection="all"
-  fi
-
-  local idx
-  for idx in $(seq 1 "${#entries[@]}"); do
-    if [[ "$selection" != "all" ]]; then
-      local found=0
-      local token
-      for token in $(echo "$selection" | tr ',' ' '); do
-        if [[ "$token" -eq "$idx" ]]; then
-          found=1
-          break
-        fi
-      done
-      [[ "$found" -eq 1 ]] || continue
-    fi
-    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"${entries[$((idx - 1))]}"
-    if is_instance_running "$name"; then
-      err "Instance already running, skipping: $name"
-      continue
-    fi
-    start_instance "$name" "$model" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key" "$chat_format" "$no_mmap" "$flash_attn" "$disable_metal"
-  done
-}
-
-stop_multi() {
-  if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
-    local entry
-    while IFS='|' read -r name _; do
-      stop_instance "$name"
-    done < <(parse_multi_config)
-    return 0
-  fi
-
-  if [[ -d "$INSTANCES_DIR" ]]; then
-    local pid_file
-    for pid_file in "$INSTANCES_DIR"/*.pid; do
-      [[ -e "$pid_file" ]] || continue
-      local name
-      name="$(basename "$pid_file" .pid)"
-      stop_instance "$name"
-    done
-  fi
-}
-
-status_multi() {
-  local strict="${1:-0}"
-  echo "Mode : multi"
-  if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
-    local entry
-  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal; do
-      local effective_port="${port:-$LLAMA_SERVER_PORT}"
-      if ! is_instance_running "$name" && [[ "$strict" -eq 0 ]]; then
-        repair_instance_pid "$name" "$effective_port" || true
-      fi
-      if is_instance_running "$name"; then
-        local pid
-        pid="$(cat "$(instance_pid_file "$name")")"
-        local model_path="(unknown)"
-        if [[ -f "$(instance_model_file "$name")" ]]; then
-          model_path="$(cat "$(instance_model_file "$name")")"
-        fi
-        local log_file
-        log_file="$(instance_log_file "$name")"
-        local effective_host="${host:-$LLAMA_SERVER_HOST}"
-        echo "Instance [$name]: RUNNING"
-        echo "  PID   : $pid"
-        echo "  Bind  : $effective_host"
-        echo "  Port  : $effective_port"
-        echo "  URL   : $(client_url_for_bind "$effective_host" "$effective_port")"
-        echo "  Model : $model_path"
-        echo "  Log   : $log_file"
-      else
-        echo "Instance [$name]: NOT RUNNING"
-      fi
-    done < <(parse_multi_config)
-    return 0
-  fi
-
-  local pid_file
-  for pid_file in "$INSTANCES_DIR"/*.pid; do
-    [[ -e "$pid_file" ]] || continue
-    local name
-    name="$(basename "$pid_file" .pid)"
-    if is_instance_running "$name"; then
-      local pid
-      pid="$(cat "$pid_file")"
-      local model_path="(unknown)"
-      if [[ -f "$(instance_model_file "$name")" ]]; then
-        model_path="$(cat "$(instance_model_file "$name")")"
-      fi
-      echo "Instance [$name]: RUNNING"
-      echo "  PID   : $pid"
-      echo "  Model : $model_path"
-      echo "  Log   : $(instance_log_file "$name")"
-    else
-      echo "Instance [$name]: NOT RUNNING"
-    fi
-  done
-}
-
-select_shard_from_dir() {
-  local dir="$1"
-  local shard
-  shard="$(find "$dir" -maxdepth 1 -type f -name "*-00001-of-*.gguf" | sort | head -n 1)"
-  if [[ -n "$shard" ]]; then
-    echo "$shard"
-    return 0
-  fi
-  shard="$(find "$dir" -maxdepth 1 -type f -name "*.gguf" | sort | head -n 1)"
-  if [[ -n "$shard" ]]; then
-    echo "$shard"
-    return 0
-  fi
-  return 1
-}
-
-select_shard_by_prefix() {
-  local prefix="$1"
-  local shard
-  shard="$(find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 1 -type f -name "${prefix}-00001-of-*.gguf" | sort | head -n 1)"
-  if [[ -n "$shard" ]]; then
-    echo "$shard"
-    return 0
-  fi
-  return 1
-}
-
-select_model_interactively() {
-  local -a models
-  local -a targets
-  local -a shard_prefixes
-  local -a shard_paths
-  local -a top_files
-  local -a model_dirs
-  local shard_in_root=0
-  local model_count
-
-  while IFS= read -r line; do
-    top_files+=("$line")
-  done < <(find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 1 -type f -name "*.gguf" | sort)
-
-  local file
-  for file in "${top_files[@]}"; do
-    local base
-    base="$(basename "$file")"
-    if [[ "$base" =~ ^(.*)-00001-of-[0-9]+\.gguf$ ]]; then
-      shard_prefixes+=("${BASH_REMATCH[1]}")
-      shard_paths+=("$file")
-      shard_in_root=1
-    fi
-  done
-
-  local dir
-  while IFS= read -r dir; do
-    if [[ "$dir" == "$LLAMA_SERVER_MODELS_DIR" ]]; then
-      continue
-    fi
-    if find "$dir" -maxdepth 1 -type f -name "*.gguf" -print -quit >/dev/null 2>&1; then
-      local dir_name
-      dir_name="$(basename "$dir")"
-      local shard
-      shard="$(select_shard_from_dir "$dir" || true)"
-      if [[ -n "$shard" ]]; then
-        models+=("${dir_name}/ (sharded)")
-        targets+=("$shard")
-      fi
-    fi
-  done < <(find "$LLAMA_SERVER_MODELS_DIR" -maxdepth 1 -type d | sort)
-
-  local i
-  for i in "${!shard_prefixes[@]}"; do
-    models+=("${shard_prefixes[$i]} (sharded)")
-    targets+=("${shard_paths[$i]}")
-  done
-
-  for file in "${top_files[@]}"; do
-    local base
-    base="$(basename "$file")"
-    if [[ "$base" =~ ^(.*)-0000[0-9]-of-[0-9]+\.gguf$ ]]; then
-      local prefix="${BASH_REMATCH[1]}"
-      local skip=0
-      local p
-      for p in "${shard_prefixes[@]}"; do
-        if [[ "$p" == "$prefix" ]]; then
-          skip=1
-          break
-        fi
-      done
-      if [[ "$skip" -eq 1 ]]; then
-        continue
-      fi
-    fi
-    models+=("$base")
-    targets+=("$file")
-  done
-
-  model_count="${#models[@]}"
-
-  if [[ "$model_count" -eq 0 ]]; then
-    err "No GGUF models found in $LLAMA_SERVER_MODELS_DIR"
-    exit 1
-  fi
-
-  if [[ "$shard_in_root" -eq 1 ]]; then
-    echo "Warning: Sharded GGUF files found in $LLAMA_SERVER_MODELS_DIR." >&2
-    echo "Consider moving each shard set into its own subfolder for cleaner selection." >&2
-  fi
-
-  if [[ "$model_count" -eq 1 ]]; then
-    local only_model
-    only_model="${models[0]}"
-    echo "Using only available model: $only_model" >&2
-    echo "${targets[0]}"
-    return 0
-  fi
-
-  echo "Available models:" >&2
-  for i in "${!models[@]}"; do
-    printf "  [%d] %s\n" "$((i + 1))" "${models[$i]}" >&2
-  done
-
-  local choice
-  while true; do
-    read -r -p "Select a model [1-$model_count]: " choice
-    if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= model_count)); then
-      echo "${targets[$((choice - 1))]}"
-      return 0
-    fi
-    err "Invalid selection."
-  done
-}
-
-resolve_model_path() {
-  local input="${1:-}"
-  if [[ -z "$input" ]]; then
-    select_model_interactively
-    return 0
-  fi
-
-  if [[ -f "$input" ]]; then
-    echo "$input"
-    return 0
-  fi
-
-  if [[ -d "$input" ]]; then
-    local shard
-    shard="$(select_shard_from_dir "$input" || true)"
-    if [[ -n "$shard" ]]; then
-      echo "$shard"
-      return 0
-    fi
-  fi
-
-  if [[ -d "$LLAMA_SERVER_MODELS_DIR/$input" ]]; then
-    local shard
-    shard="$(select_shard_from_dir "$LLAMA_SERVER_MODELS_DIR/$input" || true)"
-    if [[ -n "$shard" ]]; then
-      echo "$shard"
-      return 0
-    fi
-  fi
-
-  if [[ -f "$LLAMA_SERVER_MODELS_DIR/$input" ]]; then
-    echo "$LLAMA_SERVER_MODELS_DIR/$input"
-    return 0
-  fi
-
-  local shard
-  shard="$(select_shard_by_prefix "$input" || true)"
-  if [[ -n "$shard" ]]; then
-    echo "$shard"
-    return 0
-  fi
-
-  err "Model not found: $input"
-  exit 1
 }
 
 ensure_api_key() {
@@ -1106,6 +452,7 @@ start_server() {
     effective_n_gpu_layers="0"
   fi
 
+  check_metal_backend_health "$model_path" "$effective_disable_metal"
   warn_large_model "$model_path" "$effective_n_gpu_layers" "$effective_gpus"
 
   local -a chat_format_args=()
@@ -1177,67 +524,27 @@ start_server() {
   started_pid="$(cat "$LLAMA_SERVER_PID_FILE")"
   info "Server started with PID $started_pid"
 
-  sleep 0.25
-  if ! kill -0 "$started_pid" 2>/dev/null; then
+  local attempts=0
+  while [[ "$attempts" -lt 12 ]]; do
+    if ! kill -0 "$started_pid" 2>/dev/null; then
+      break
+    fi
+    if is_pid_listening_on_port "$started_pid" "$LLAMA_SERVER_PORT"; then
+      break
+    fi
+    attempts=$((attempts + 1))
+    sleep 0.25
+  done
+  if ! kill -0 "$started_pid" 2>/dev/null || ! is_pid_listening_on_port "$started_pid" "$LLAMA_SERVER_PORT"; then
     err "Server exited early. Check log: $LOG_FILE"
     tail -n 20 "$LOG_FILE" >&2 || true
+    rm -f "$LLAMA_SERVER_PID_FILE"
+    return 1
   fi
 
   if [[ "$LLAMA_PROXY_ENABLED" == "1" ]]; then
     start_proxy
   fi
-}
-
-start_proxy() {
-  if is_proxy_running; then
-    err "Proxy already running. Use: $0 restart-proxy"
-    exit 1
-  fi
-
-  local existing_pid
-  existing_pid="$(find_pid_by_port "$LLAMA_PROXY_PORT")"
-  if [[ -n "$existing_pid" ]]; then
-    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-      if docker compose -f "$ROOT_DIR/docker-compose.yml" ps --status running proxy 2>/dev/null | grep -q "proxy"; then
-        err "Port $LLAMA_PROXY_PORT is already used by docker-compose proxy."
-        err "Stop it first with: docker compose stop proxy"
-        err "Or use the Docker proxy directly and do not run: $0 start-proxy"
-        exit 1
-      fi
-    fi
-    err "Port $LLAMA_PROXY_PORT is already in use by PID $existing_pid."
-    err "Free the port or change LLAMA_PROXY_PORT in runtime/config.env."
-    exit 1
-  fi
-
-  ensure_venv_and_deps
-  ensure_proxy_deps
-  ensure_db_url
-  mkdir -p "$LLAMA_SERVER_LOG_DIR"
-
-  export LLAMA_SERVER_BACKEND_URL="${LLAMA_SERVER_BACKEND_URL:-http://127.0.0.1:$LLAMA_SERVER_PORT}"
-
-  info "Starting auth proxy..."
-  info "Backend: $LLAMA_SERVER_BACKEND_URL"
-  info "Bind   : $LLAMA_PROXY_HOST"
-  info "Port   : $LLAMA_PROXY_PORT"
-  info "Log    : $PROXY_LOG_FILE"
-
-  "$PYTHON_BIN" -m uvicorn auth_proxy:app \
-    --app-dir "$RUNTIME_DIR" \
-    --host "$LLAMA_PROXY_HOST" \
-    --port "$LLAMA_PROXY_PORT" >>"$PROXY_LOG_FILE" 2>&1 &
-
-  local started_pid="$!"
-  echo "$started_pid" > "$LLAMA_PROXY_PID_FILE"
-  sleep 0.25
-  if ! kill -0 "$started_pid" 2>/dev/null; then
-    err "Proxy exited early. Check log: $PROXY_LOG_FILE"
-    tail -n 20 "$PROXY_LOG_FILE" >&2 || true
-    rm -f "$LLAMA_PROXY_PID_FILE"
-    exit 1
-  fi
-  info "Proxy started with PID $(cat "$LLAMA_PROXY_PID_FILE")"
 }
 
 stop_server() {
@@ -1269,32 +576,6 @@ stop_server() {
   fi
 }
 
-stop_proxy() {
-  if ! is_proxy_running; then
-    info "Proxy is not running."
-    return 0
-  fi
-
-  local pid
-  pid="$(cat "$LLAMA_PROXY_PID_FILE")"
-  info "Stopping proxy (PID $pid)..."
-  kill "$pid" 2>/dev/null || true
-
-  local i
-  for i in {1..20}; do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      rm -f "$LLAMA_PROXY_PID_FILE"
-      info "Proxy stopped."
-      return 0
-    fi
-    sleep 0.25
-  done
-
-  err "Proxy did not stop gracefully; sending SIGKILL."
-  kill -9 "$pid" 2>/dev/null || true
-  rm -f "$LLAMA_PROXY_PID_FILE"
-}
-
 restart_server() {
   if [[ "$LLAMA_PROXY_ENABLED" == "1" ]]; then
     stop_proxy
@@ -1303,16 +584,12 @@ restart_server() {
   start_server "$@"
 }
 
-restart_proxy() {
-  stop_proxy
-  start_proxy
-}
-
 usage() {
   cat <<EOF
 Usage: $0 <command> [args]
 
 Commands:
+  preflight            Run environment checks before install/start
   start single [model] [--chat-format fmt] [--use-chat-template] [--disable-metal] [--no-prompt] Start single server (optional model name/path)
   start multi [--no-prompt] Start multiple servers from $LLAMA_MULTI_CONFIG
   restart [model]      Restart current mode (single or multi)
@@ -1332,7 +609,16 @@ main() {
   shift || true
 
   case "$cmd" in
+    preflight)
+      if [[ -x "$ROOT_DIR/bin/preflight.sh" ]]; then
+        "$ROOT_DIR/bin/preflight.sh"
+      else
+        err "Missing preflight script: $ROOT_DIR/bin/preflight.sh"
+        exit 1
+      fi
+      ;;
     start)
+      assert_supported_shell
       local mode="${1:-}"
       shift || true
       case "$mode" in
@@ -1356,6 +642,7 @@ main() {
       esac
       ;;
     restart)
+      assert_supported_shell
       if is_server_running; then
         restart_server "$@"
       else
@@ -1411,6 +698,7 @@ main() {
       esac
       ;;
     start-multi)
+      assert_supported_shell
       start_multi
       ;;
     stop-multi)
@@ -1420,9 +708,11 @@ main() {
       status_multi
       ;;
     start-proxy)
+      assert_supported_shell
       start_proxy
       ;;
     restart-proxy)
+      assert_supported_shell
       restart_proxy
       ;;
     stop-proxy)

@@ -11,27 +11,69 @@ BOOTSTRAP_CLI="$ROOT_DIR/bin/bootstrap_user_cli.sh"
 
 WITH_MULTI=1
 WITH_PROXY=1
+MODE="full"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --ci)
+      MODE="ci"
+      WITH_MULTI=0
+      WITH_PROXY=0
+      ;;
+    --full)
+      MODE="full"
+      ;;
     --no-multi) WITH_MULTI=0 ;;
     --no-proxy) WITH_PROXY=0 ;;
     *)
       echo "Unknown argument: $1" >&2
-      echo "Usage: $0 [--no-multi] [--no-proxy]" >&2
+      echo "Usage: $0 [--ci|--full] [--no-multi] [--no-proxy]" >&2
       exit 1
       ;;
   esac
   shift
 done
 
-if [[ ! -f "$CONFIG_FILE" ]]; then
-  echo "Missing runtime config: $CONFIG_FILE" >&2
+if [[ ! -x "$CONSOLE" ]]; then
+  echo "Missing executable: $CONSOLE" >&2
   exit 1
 fi
 
-if [[ ! -x "$CONSOLE" ]]; then
-  echo "Missing executable: $CONSOLE" >&2
+if [[ "$MODE" == "ci" ]]; then
+  echo "[1/4] Script syntax"
+  bash -n "$ROOT_DIR/console.sh"
+  bash -n "$ROOT_DIR/runtime/install.sh"
+  bash -n "$ROOT_DIR/bin/"*.sh
+
+  echo "[2/4] Console contract"
+  "$CONSOLE" -h >/dev/null
+  "$CONSOLE" status >/dev/null
+
+  echo "[3/4] YAML contract"
+  if python3 -c "import yaml" >/dev/null 2>&1; then
+    python3 - <<PY
+import pathlib, yaml
+root = pathlib.Path(r"""$ROOT_DIR""")
+for p in [
+    root / "config" / "models.yaml.example",
+    root / "config" / "proxy_routes.yaml.example",
+]:
+    yaml.safe_load(p.read_text())
+print("yaml_ok")
+PY
+  else
+    rg -n "^models:|^instances:" "$ROOT_DIR/config/models.yaml.example" >/dev/null
+    rg -n "^routes:" "$ROOT_DIR/config/proxy_routes.yaml.example" >/dev/null
+    echo "yaml_module_missing_fallback_ok"
+  fi
+
+  echo "[4/4] PASS"
+  echo "Smoke test succeeded (ci mode)."
+  exit 0
+fi
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "Missing runtime config: $CONFIG_FILE" >&2
   exit 1
 fi
 

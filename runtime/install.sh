@@ -31,6 +31,65 @@ echo ">>> Config dir   : $CONFIG_DIR"
 echo ">>> Virtualenv   : $VENV_DIR"
 echo
 
+is_native_windows_shell() {
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+resolve_python_bin() {
+  if [[ -n "${LLAMA_PYTHON_BIN:-}" ]]; then
+    if [[ -x "$LLAMA_PYTHON_BIN" ]]; then
+      echo "$LLAMA_PYTHON_BIN"
+      return 0
+    fi
+    echo "ERROR: LLAMA_PYTHON_BIN is set but not executable: $LLAMA_PYTHON_BIN" >&2
+    exit 1
+  fi
+
+  local candidate
+  for candidate in python3.12 python3.11 python3; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      command -v "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+validate_python_version() {
+  local py_bin="$1"
+  local py_mm
+  py_mm="$("$py_bin" - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)"
+  case "$py_mm" in
+    3.11|3.12) return 0 ;;
+    *)
+      echo "ERROR: Unsupported Python version: $py_mm (from $py_bin)" >&2
+      echo "Use Python 3.11 or 3.12. Example:" >&2
+      echo "  LLAMA_PYTHON_BIN=/opt/homebrew/bin/python3.12 ./runtime/install.sh" >&2
+      exit 1
+      ;;
+  esac
+}
+
+if is_native_windows_shell; then
+  echo "ERROR: Native Windows shells (Git Bash/MINGW/MSYS/CYGWIN) are not supported." >&2
+  echo "Use WSL2 (Ubuntu) and run install there." >&2
+  exit 1
+fi
+
+PYTHON_BOOTSTRAP_BIN="$(resolve_python_bin || true)"
+if [[ -z "$PYTHON_BOOTSTRAP_BIN" ]]; then
+  echo "ERROR: Python not found. Install Python 3.11/3.12 and rerun." >&2
+  exit 1
+fi
+validate_python_version "$PYTHON_BOOTSTRAP_BIN"
+
 ###############################################################################
 # 1) Create config.env (only if missing) with absolute paths
 ###############################################################################
@@ -109,7 +168,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
     local from="$2"
     local to="$3"
     if grep -q "^${key}=\"${from}\"$" "$CONFIG_FILE"; then
-      python3 - <<PY
+      "$PYTHON_BOOTSTRAP_BIN" - <<PY
 from pathlib import Path
 path = Path(r"""$CONFIG_FILE""")
 text = path.read_text()
@@ -186,7 +245,7 @@ set_env_value() {
     return 0
   fi
   if grep -q "^${key}=" "$file"; then
-    python3 - <<PY
+    "$PYTHON_BOOTSTRAP_BIN" - <<PY
 from pathlib import Path
 path = Path(r"""$file""")
 text = path.read_text()
@@ -235,7 +294,7 @@ fi
 ###############################################################################
 if [[ ! -d "$VENV_DIR" ]]; then
   echo ">>> Creating virtualenv at $VENV_DIR"
-  python3 -m venv "$VENV_DIR"
+  "$PYTHON_BOOTSTRAP_BIN" -m venv "$VENV_DIR"
 fi
 
 VENV_BIN="$VENV_DIR/bin"

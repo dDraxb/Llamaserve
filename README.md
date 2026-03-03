@@ -5,6 +5,7 @@ Thin wrapper around `llama_cpp.server` that runs **one GGUF model** and exposes 
 ## Quick start
 
 ```bash
+./console.sh preflight
 ./runtime/install.sh
 ./console.sh start single
 ```
@@ -20,6 +21,8 @@ To disable Metal on macOS (if llama_cpp crashes on startup):
 ```
 
 On macOS, `runtime/install.sh` pins `llama-cpp-python` to `0.2.90` because newer `0.3.16` builds can crash in Metal backend initialization on some machines.
+`console.sh` enforces this pin on macOS startup unless you explicitly set `LLAMA_ALLOW_UNPINNED=1`.
+Before startup, macOS runs a Metal health probe and fails fast with a clear diagnosis if the session cannot create a Metal command queue.
 
 To skip prompts (automation):
 ```bash
@@ -34,6 +37,17 @@ Standard smoke test:
 Optional flags:
 - `--no-proxy` to skip proxy checks
 - `--no-multi` to skip multi-mode checks
+- `--ci` for fast CI-safe contract checks
+
+Compatibility policy and tested matrix: `docs/compatibility.md`.
+
+## Platform support
+
+- macOS: supported (Python 3.11/3.12)
+- Linux: supported (Python 3.11/3.12)
+- Windows: use **WSL2 (Ubuntu)**; native Git Bash/MSYS/Cygwin is not supported for install/runtime
+
+If you run in native Windows shells, `runtime/install.sh` now fails fast with a clear WSL2 instruction.
 
 ## Layout
 

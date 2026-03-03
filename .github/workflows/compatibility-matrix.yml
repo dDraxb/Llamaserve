@@ -1,0 +1,43 @@
+name: Compatibility Matrix
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1"
+
+jobs:
+  matrix-check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+        llama-version: ["0.2.90", "0.3.16"]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Build runtime venv and install llama-cpp-python
+        run: |
+          python -m venv runtime/.venv
+          runtime/.venv/bin/pip install --upgrade pip
+          runtime/.venv/bin/pip install "llama-cpp-python[server]==${{ matrix.llama-version }}" huggingface_hub psycopg2-binary PyYAML
+
+      - name: Runtime import sanity
+        run: |
+          runtime/.venv/bin/python - <<'PY'
+          import llama_cpp
+          print("llama_cpp", llama_cpp.__version__)
+          PY
+
+      - name: Smoke contract (CI mode)
+        run: |
+          chmod +x bin/smoke_test.sh
+          ./bin/smoke_test.sh --ci

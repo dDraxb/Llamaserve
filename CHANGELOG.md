@@ -30,6 +30,7 @@ All notable changes to this project.
 - Proactive macOS Metal probe with explicit diagnostics before startup.
 - Native Windows shell guardrails (Git Bash/MSYS/Cygwin): fail fast with WSL2 guidance.
 - Install/runtime Python version checks hardened in `runtime/install.sh`.
+- Docker proxy upstream routing on Linux: added `extra_hosts: ["host.docker.internal:host-gateway"]` and made proxy backend/route host env-overridable in `docker-compose.yml`.
 
 ## 2026-03-03
 

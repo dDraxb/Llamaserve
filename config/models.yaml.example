@@ -1,4 +1,4 @@
-instances:
+models:
   - name: gpu0_tinyllama
     model: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
     host: 127.0.0.1
@@ -7,6 +7,8 @@ instances:
     n_ctx: 8192
     n_gpu_layers: -1
     chat_format: ""
+    no_mmap: false
+    flash_attn: false
 
   - name: gpu1_gptoss
     model: openai_gpt-oss-20b-Q4_K_M.gguf
@@ -16,3 +18,5 @@ instances:
     n_ctx: 8192
     n_gpu_layers: -1
     chat_format: ""
+    no_mmap: false
+    flash_attn: false

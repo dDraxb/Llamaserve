@@ -1,6 +1,8 @@
 
 .idea
-./runtime/.venv/
+runtime/.venv/
+runtime/llama_server.host
+runtime/llama_server.port
 ./runtime/config.env
 runtime/config.env
 runtime/llama_proxy.pid

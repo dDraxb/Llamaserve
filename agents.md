@@ -40,7 +40,7 @@ From the perspective of this file (`agents.md`), the project root looks like:
     *.gguf          # one or more GGUF LLM model files (downloaded or copied here)
 
 Note: For sharded GGUF (e.g., `*-00001-of-00003.gguf`), place all shards in a subfolder under `models/` so the CLI shows a single “sharded” option and picks the `00001` shard.
-If a model outputs raw `<|channel|>` markers, set `chat_format` per instance in `config/models.yaml` to the correct template for that GGUF. If omitted, llama-cpp uses its default/auto behavior.
+If a model outputs raw `<|channel|>` markers, set `chat_format` per instance in `config/models.yaml` to the correct template for that GGUF. If omitted, llama-cpp uses its default/auto behavior. `no_mmap: true` maps to `--use_mmap false`, `flash_attn: true` maps to `--flash_attn true`, and `disable_metal: true` disables Metal on macOS.
 
 ---
 
@@ -97,7 +97,7 @@ Conversation management is client-side; include the relevant message history wit
 OpenAI compatibility is best-effort; optional parameters may be ignored or unsupported.
 OpenAI `/v1/completions` is a legacy API; use `/v1/chat/completions` where possible. citeturn0search0
 
-Multi-model support: use `config/models.yaml` and `./console.sh start multi` to run multiple servers (one per entry).
+Model catalog: use `config/models.yaml`. `start single` prompts for one entry; `start multi` prompts for one or more entries to launch.
 Proxy routing for multi-model: map model IDs to backends in `config/proxy_routes.yaml` (see example).
 `restart`, `stop`, and `status` operate on the currently running mode (single or multi).
 

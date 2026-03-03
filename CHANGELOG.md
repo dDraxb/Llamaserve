@@ -78,4 +78,16 @@ The format is based on Keep a Changelog, and this project follows semantic versi
 - Install no longer writes `LLAMA_SERVER_CHAT_FORMAT`; prefer per-instance `chat_format` in `config/models.yaml`.
 - Added `--chat-format` flag for `start single` to set chat templates without editing config.env.
 - Added `--use-chat-template` flag for `start single` to force GGUF chat templates when available.
+- `config/models.yaml` is now a shared catalog for both single and multi mode, with interactive selection for each.
+- Fixed empty CLI arg handling when no chat_format/no_mmap/flash_attn flags are set.
+- Added `--no-prompt` for `start single` and `start multi`, and moved prompts to stdout for ordered output.
+- Filtered empty args before launching llama_cpp.server to avoid "unrecognized arguments:" exits.
 - Added route host override for Docker proxy routing.
+- `no_mmap: true` now maps to `--use_mmap false` and `flash_attn: true` maps to `--flash_attn true` (per llama_cpp.server args).
+- Added `disable_metal` per-instance flag and `LLAMA_SERVER_DISABLE_METAL` to disable Metal on macOS.
+- `--use-chat-template` now sets `chat_format=chat_template.default` instead of passing an unsupported server flag.
+- Fixed CLI argument forwarding so `start single`/`start multi`/`restart` pass all flags (e.g. `--disable-metal`, `--no-prompt`).
+- On macOS, installer now pins `llama-cpp-python[server]==0.2.90` to avoid 0.3.16 Metal startup crashes.
+- `start-proxy` now preflights the proxy port and fails fast with clear guidance when Docker proxy already owns the port.
+- `start-proxy` now detects early process exit and surfaces proxy log tail immediately.
+- Added `bin/smoke_test.sh` as a one-command standard validation for single/multi/proxy flows.

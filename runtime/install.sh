@@ -88,6 +88,9 @@ LLAMA_SERVER_PID_FILE="\$LLAMA_SERVER_RUNTIME_DIR/llama_server.pid"
 
 # Optional: pin GPUs (example: "0" or "0,1")
 LLAMA_SERVER_CUDA_VISIBLE_DEVICES=""
+
+# Optional: disable Metal backend on macOS (set to "1" to disable)
+LLAMA_SERVER_DISABLE_METAL="0"
 EOF
 
   echo ">>> Generated API key (store this somewhere safe): $API_KEY_GENERATED"
@@ -251,7 +254,12 @@ fi
 
 echo ">>> Upgrading pip and installing dependencies inside venv"
 "$PIP_BIN" install --upgrade pip
-"$PIP_BIN" install "llama-cpp-python[server]" "huggingface_hub" "psycopg2-binary" "PyYAML"
+LLAMA_CPP_SPEC="llama-cpp-python[server]"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  # 0.3.16 is unstable on some macOS setups (Metal backend segfault at startup).
+  LLAMA_CPP_SPEC="llama-cpp-python[server]==0.2.90"
+fi
+"$PIP_BIN" install "$LLAMA_CPP_SPEC" "huggingface_hub" "psycopg2-binary" "PyYAML"
 
 echo
 

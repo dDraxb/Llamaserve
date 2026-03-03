@@ -44,7 +44,10 @@ LLAMA_SERVER_CHAT_FORMAT="${LLAMA_SERVER_CHAT_FORMAT:-}"
 LLAMA_SERVER_API_KEY="${LLAMA_SERVER_API_KEY:-}"
 LLAMA_SERVER_PID_FILE="${LLAMA_SERVER_PID_FILE:-$RUNTIME_DIR/llama_server.pid}"
 LLAMA_SERVER_MODEL_FILE="${LLAMA_SERVER_MODEL_FILE:-$RUNTIME_DIR/llama_server.model}"
+LLAMA_SERVER_HOST_FILE="${LLAMA_SERVER_HOST_FILE:-$RUNTIME_DIR/llama_server.host}"
+LLAMA_SERVER_PORT_FILE="${LLAMA_SERVER_PORT_FILE:-$RUNTIME_DIR/llama_server.port}"
 LLAMA_SERVER_CUDA_VISIBLE_DEVICES="${LLAMA_SERVER_CUDA_VISIBLE_DEVICES:-}"
+LLAMA_SERVER_DISABLE_METAL="${LLAMA_SERVER_DISABLE_METAL:-0}"
 LLAMA_PROXY_ENABLED="${LLAMA_PROXY_ENABLED:-0}"
 LLAMA_PROXY_HOST="${LLAMA_PROXY_HOST:-0.0.0.0}"
 LLAMA_PROXY_PORT="${LLAMA_PROXY_PORT:-8001}"
@@ -104,6 +107,13 @@ warn_large_model() {
     fi
   fi
 }
+
+is_truthy() {
+  case "$(echo "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+  esac
+  return 1
+}
 trim() {
   local s="$1"
   s="${s#"${s%%[![:space:]]*}"}"
@@ -130,6 +140,10 @@ client_url_for_bind() {
 
 is_server_running() {
   local strict="${1:-0}"
+  local effective_port="$LLAMA_SERVER_PORT"
+  if [[ -f "$LLAMA_SERVER_PORT_FILE" ]]; then
+    effective_port="$(cat "$LLAMA_SERVER_PORT_FILE" 2>/dev/null || echo "$LLAMA_SERVER_PORT")"
+  fi
   if [[ -f "$LLAMA_SERVER_PID_FILE" ]]; then
     local pid
     pid="$(cat "$LLAMA_SERVER_PID_FILE" 2>/dev/null || true)"
@@ -139,7 +153,7 @@ is_server_running() {
       rm -f "$LLAMA_SERVER_PID_FILE"
       if [[ "$strict" -eq 0 ]]; then
         local detected_pid
-        detected_pid="$(find_pid_by_port "$LLAMA_SERVER_PORT")"
+        detected_pid="$(find_pid_by_port "$effective_port")"
         if [[ -n "$detected_pid" ]] && is_llama_process "$detected_pid"; then
           echo "$detected_pid" > "$LLAMA_SERVER_PID_FILE"
           return 0
@@ -150,7 +164,7 @@ is_server_running() {
   else
     if [[ "$strict" -eq 0 ]]; then
       local detected_pid
-      detected_pid="$(find_pid_by_port "$LLAMA_SERVER_PORT")"
+      detected_pid="$(find_pid_by_port "$effective_port")"
       if [[ -n "$detected_pid" ]] && is_llama_process "$detected_pid"; then
         echo "$detected_pid" > "$LLAMA_SERVER_PID_FILE"
         return 0
@@ -228,11 +242,19 @@ print_status() {
     if [[ -f "$LLAMA_SERVER_MODEL_FILE" ]]; then
       model="$(cat "$LLAMA_SERVER_MODEL_FILE")"
     fi
+    local effective_host="$LLAMA_SERVER_HOST"
+    local effective_port="$LLAMA_SERVER_PORT"
+    if [[ -f "$LLAMA_SERVER_HOST_FILE" ]]; then
+      effective_host="$(cat "$LLAMA_SERVER_HOST_FILE" 2>/dev/null || echo "$LLAMA_SERVER_HOST")"
+    fi
+    if [[ -f "$LLAMA_SERVER_PORT_FILE" ]]; then
+      effective_port="$(cat "$LLAMA_SERVER_PORT_FILE" 2>/dev/null || echo "$LLAMA_SERVER_PORT")"
+    fi
     echo "Server status: RUNNING"
     echo "  PID   : $pid"
-    echo "  Bind  : $LLAMA_SERVER_HOST"
-    echo "  Port  : $LLAMA_SERVER_PORT"
-    echo "  URL   : $(client_url_for_bind "$LLAMA_SERVER_HOST" "$LLAMA_SERVER_PORT")"
+    echo "  Bind  : $effective_host"
+    echo "  Port  : $effective_port"
+    echo "  URL   : $(client_url_for_bind "$effective_host" "$effective_port")"
     echo "  Model : $model"
     echo "  Log   : $LOG_FILE"
   else
@@ -417,6 +439,9 @@ start_instance() {
   local n_gpu_layers="$7"
   local api_key="$8"
   local chat_format="$9"
+  local no_mmap="${10:-}"
+  local flash_attn="${11:-}"
+  local disable_metal="${12:-}"
 
   mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
 
@@ -446,12 +471,20 @@ start_instance() {
   local effective_n_ctx="$n_ctx"
   local effective_n_gpu_layers="$n_gpu_layers"
   local effective_chat_format="$chat_format"
+  local effective_no_mmap="$no_mmap"
+  local effective_flash_attn="$flash_attn"
+  local effective_disable_metal="$disable_metal"
 
   [[ -z "$effective_host" ]] && effective_host="$LLAMA_SERVER_HOST"
   [[ -z "$effective_port" ]] && effective_port="$LLAMA_SERVER_PORT"
   [[ -z "$effective_n_ctx" ]] && effective_n_ctx="$LLAMA_SERVER_DEFAULT_N_CTX"
   [[ -z "$effective_n_gpu_layers" ]] && effective_n_gpu_layers="$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS"
   [[ -z "$effective_chat_format" ]] && effective_chat_format="$LLAMA_SERVER_CHAT_FORMAT"
+  [[ -z "$effective_disable_metal" ]] && effective_disable_metal="$LLAMA_SERVER_DISABLE_METAL"
+  if is_truthy "$effective_disable_metal" && [[ "$effective_n_gpu_layers" == "-1" ]]; then
+    # Disable full GPU offload when Metal is disabled on macOS.
+    effective_n_gpu_layers="0"
+  fi
 
   info "Starting instance [$name]..."
   info "  Model: $model_path"
@@ -463,31 +496,63 @@ start_instance() {
   if [[ -n "$effective_chat_format" ]]; then
     chat_format_args=(--chat_format "$effective_chat_format")
   fi
+  if [[ -n "$effective_no_mmap" ]]; then
+    chat_format_args+=(--use_mmap false)
+  fi
+  if [[ -n "$effective_flash_attn" ]]; then
+    chat_format_args+=(--flash_attn true)
+  fi
 
+  local -a server_cmd=(
+    "$PYTHON_BIN" -m llama_cpp.server
+    --model "$model_path"
+    --host "$effective_host"
+    --port "$effective_port"
+    --n_ctx "$effective_n_ctx"
+    --n_gpu_layers "$effective_n_gpu_layers"
+    --api_key "$effective_api_key"
+  )
+  if [[ "${#chat_format_args[@]}" -gt 0 ]]; then
+    server_cmd+=("${chat_format_args[@]}")
+  fi
+  local -a clean_cmd=()
+  local cmd_arg
+  for cmd_arg in "${server_cmd[@]}"; do
+    [[ -n "$cmd_arg" ]] && clean_cmd+=("$cmd_arg")
+  done
+  {
+    printf "CMD:"
+    for cmd_arg in "${clean_cmd[@]}"; do
+      printf " %q" "$cmd_arg"
+    done
+    printf "\n"
+  } >>"$log_file"
+
+  local -a env_cmd=()
   if [[ -n "$gpus" ]]; then
-    CUDA_VISIBLE_DEVICES="$gpus" \
-      "$PYTHON_BIN" -m llama_cpp.server \
-        --model "$model_path" \
-        --host "$effective_host" \
-        --port "$effective_port" \
-        --n_ctx "$effective_n_ctx" \
-        --n_gpu_layers "$effective_n_gpu_layers" \
-        --api_key "$effective_api_key" \
-        "${chat_format_args[@]}" >>"$log_file" 2>&1 &
+    env_cmd+=(CUDA_VISIBLE_DEVICES="$gpus")
+  fi
+  if is_truthy "$effective_disable_metal"; then
+    env_cmd+=(GGML_METAL=0 LLAMA_METAL=0)
+  fi
+
+  if [[ "${#env_cmd[@]}" -gt 0 ]]; then
+    env "${env_cmd[@]}" "${clean_cmd[@]}" >>"$log_file" 2>&1 &
   else
-    "$PYTHON_BIN" -m llama_cpp.server \
-      --model "$model_path" \
-      --host "$effective_host" \
-      --port "$effective_port" \
-      --n_ctx "$effective_n_ctx" \
-      --n_gpu_layers "$effective_n_gpu_layers" \
-      --api_key "$effective_api_key" \
-      "${chat_format_args[@]}" >>"$log_file" 2>&1 &
+    "${clean_cmd[@]}" >>"$log_file" 2>&1 &
   fi
 
   echo $! > "$(instance_pid_file "$name")"
   echo "$model_path" > "$(instance_model_file "$name")"
   info "Instance [$name] started with PID $(cat "$(instance_pid_file "$name")")"
+
+  local started_pid
+  started_pid="$(cat "$(instance_pid_file "$name")")"
+  sleep 0.25
+  if ! kill -0 "$started_pid" 2>/dev/null; then
+    err "Instance [$name] exited early. Check log: $log_file"
+    tail -n 20 "$log_file" >&2 || true
+  fi
 }
 
 stop_instance() {
@@ -531,7 +596,7 @@ from pathlib import Path
 
 path = Path(r"""$LLAMA_MULTI_CONFIG""")
 data = yaml.safe_load(path.read_text()) or {}
-instances = data.get("instances", [])
+instances = data.get("models") or data.get("instances") or []
 for inst in instances:
     name = (inst.get("name") or "").strip()
     if not name:
@@ -544,7 +609,12 @@ for inst in instances:
     n_gpu_layers = str(inst.get("n_gpu_layers") or "").strip()
     api_key = (inst.get("api_key") or "").strip()
     chat_format = (inst.get("chat_format") or "").strip()
-    print("|".join([name, model, host, port, gpus, n_ctx, n_gpu_layers, api_key, chat_format]))
+    no_mmap = str(inst.get("no_mmap") or "").strip().lower()
+    flash_attn = str(inst.get("flash_attn") or "").strip().lower()
+    disable_metal = str(inst.get("disable_metal") or "").strip().lower()
+    def to_flag(value):
+        return "1" if value in ("1", "true", "yes", "on") else ""
+    print("|".join([name, model, host, port, gpus, n_ctx, n_gpu_layers, api_key, chat_format, to_flag(no_mmap), to_flag(flash_attn), to_flag(disable_metal)]))
 PY
 }
 
@@ -553,14 +623,85 @@ start_multi() {
   ensure_at_least_one_model
   mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
 
-  local entry
-  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format; do
+  local no_prompt=0
+  local arg
+  while [[ $# -gt 0 ]]; do
+    arg="$1"
+    case "$arg" in
+      --no-prompt)
+        no_prompt=1
+        ;;
+      *)
+        err "Unknown option for start multi: $arg"
+        usage
+        exit 1
+        ;;
+    esac
+    shift || true
+  done
+
+  local -a entries=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && entries+=("$line")
+  done < <(parse_multi_config)
+
+  if [[ "${#entries[@]}" -eq 0 ]]; then
+    err "No models defined in $LLAMA_MULTI_CONFIG"
+    exit 1
+  fi
+
+  local selection=""
+  if [[ -t 0 ]] && [[ "$no_prompt" -eq 0 ]]; then
+    echo "Available models:"
+    local i
+    for i in "${!entries[@]}"; do
+      IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"${entries[$i]}"
+      printf "  [%d] %s (%s)\n" "$((i + 1))" "$name" "$(basename "$model")"
+    done
+    while true; do
+      read -r -p "Select models [e.g., 1,2 or all]: " selection
+      [[ -z "$selection" ]] && selection="all"
+      if [[ "$selection" =~ ^(all|a|\*)$ ]]; then
+        selection="all"
+        break
+      fi
+      local valid=1
+      local token
+      for token in $(echo "$selection" | tr ',' ' '); do
+        if [[ ! "$token" =~ ^[0-9]+$ ]] || ((token < 1 || token > ${#entries[@]})); then
+          valid=0
+          break
+        fi
+      done
+      if [[ "$valid" -eq 1 ]]; then
+        break
+      fi
+      err "Invalid selection."
+    done
+  else
+    selection="all"
+  fi
+
+  local idx
+  for idx in $(seq 1 "${#entries[@]}"); do
+    if [[ "$selection" != "all" ]]; then
+      local found=0
+      local token
+      for token in $(echo "$selection" | tr ',' ' '); do
+        if [[ "$token" -eq "$idx" ]]; then
+          found=1
+          break
+        fi
+      done
+      [[ "$found" -eq 1 ]] || continue
+    fi
+    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"${entries[$((idx - 1))]}"
     if is_instance_running "$name"; then
       err "Instance already running, skipping: $name"
       continue
     fi
-    start_instance "$name" "$model" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key" "$chat_format"
-  done < <(parse_multi_config)
+    start_instance "$name" "$model" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key" "$chat_format" "$no_mmap" "$flash_attn" "$disable_metal"
+  done
 }
 
 stop_multi() {
@@ -588,7 +729,7 @@ status_multi() {
   echo "Mode : multi"
   if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
     local entry
-  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format; do
+  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal; do
       local effective_port="${port:-$LLAMA_SERVER_PORT}"
       if ! is_instance_running "$name" && [[ "$strict" -eq 0 ]]; then
         repair_instance_pid "$name" "$effective_port" || true
@@ -839,6 +980,8 @@ start_server() {
   local model_arg=""
   local chat_format_arg=""
   local use_chat_template=0
+  local disable_metal_arg=""
+  local no_prompt=0
   local arg
   while [[ $# -gt 0 ]]; do
     arg="$1"
@@ -850,6 +993,12 @@ start_server() {
       --use-chat-template)
         use_chat_template=1
         ;;
+      --disable-metal)
+        disable_metal_arg="1"
+        ;;
+      --no-prompt)
+        no_prompt=1
+        ;;
       *)
         if [[ -z "$model_arg" ]]; then
           model_arg="$arg"
@@ -859,20 +1008,130 @@ start_server() {
     shift || true
   done
 
-  model_path="$(resolve_model_path "$model_arg")"
-  warn_large_model "$model_path" "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS" "$LLAMA_SERVER_CUDA_VISIBLE_DEVICES"
+  local -a catalog_entries=()
+  if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && catalog_entries+=("$line")
+    done < <(parse_multi_config)
+  fi
+
+  local selected_entry=""
+  if [[ -n "$model_arg" ]] && [[ "${#catalog_entries[@]}" -gt 0 ]]; then
+    local entry
+    for entry in "${catalog_entries[@]}"; do
+      IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"$entry"
+      if [[ "$model_arg" == "$name" ]] || [[ "$model_arg" == "$model" ]] || [[ "$model_arg" == "$(basename "$model")" ]]; then
+        selected_entry="$entry"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$model_arg" ]] && [[ "${#catalog_entries[@]}" -gt 0 ]]; then
+    if [[ "$no_prompt" -eq 1 ]]; then
+      selected_entry="${catalog_entries[0]}"
+    else
+      echo "Available models:"
+      local i
+      for i in "${!catalog_entries[@]}"; do
+        IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"${catalog_entries[$i]}"
+        printf "  [%d] %s (%s)\n" "$((i + 1))" "$name" "$(basename "$model")"
+      done
+      local choice
+      while true; do
+        read -r -p "Select a model [1-${#catalog_entries[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#catalog_entries[@]})); then
+          selected_entry="${catalog_entries[$((choice - 1))]}"
+          break
+        fi
+        err "Invalid selection."
+      done
+    fi
+  fi
+
+  if [[ -z "$model_arg" ]] && [[ "${#catalog_entries[@]}" -gt 0 ]] && [[ -z "$selected_entry" ]]; then
+    err "No model selected."
+    exit 1
+  fi
+
+  if [[ -z "$model_arg" ]] && [[ "${#catalog_entries[@]}" -eq 0 ]] && [[ "$no_prompt" -eq 1 ]]; then
+    err "No models in catalog and prompts disabled."
+    exit 1
+  fi
+
+  if [[ -z "$model_arg" ]] && [[ "${#catalog_entries[@]}" -eq 0 ]]; then
+    model_path="$(select_model_interactively)"
+  elif [[ -n "$selected_entry" ]]; then
+    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"$selected_entry"
+    model_path="$(resolve_model_path "$model")"
+  else
+    model_path="$(resolve_model_path "$model_arg")"
+  fi
+
+  if [[ -z "$model_path" ]]; then
+    err "Unable to resolve model path."
+    exit 1
+  fi
+
+  local effective_host="$LLAMA_SERVER_HOST"
+  local effective_port="$LLAMA_SERVER_PORT"
+  local effective_n_ctx="$LLAMA_SERVER_DEFAULT_N_CTX"
+  local effective_n_gpu_layers="$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS"
+  local effective_api_key="$LLAMA_SERVER_API_KEY"
+  local effective_chat_format="$chat_format_arg"
+  local effective_no_mmap=""
+  local effective_flash_attn=""
+  local effective_gpus="$LLAMA_SERVER_CUDA_VISIBLE_DEVICES"
+  local effective_disable_metal="$disable_metal_arg"
+
+  if [[ -n "$selected_entry" ]]; then
+    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"$selected_entry"
+    model_path="$(resolve_model_path "$model")"
+    [[ -n "$host" ]] && effective_host="$host"
+    [[ -n "$port" ]] && effective_port="$port"
+    [[ -n "$n_ctx" ]] && effective_n_ctx="$n_ctx"
+    [[ -n "$n_gpu_layers" ]] && effective_n_gpu_layers="$n_gpu_layers"
+    [[ -n "$api_key" ]] && effective_api_key="$api_key"
+    [[ -n "$chat_format" ]] && [[ -z "$effective_chat_format" ]] && effective_chat_format="$chat_format"
+    [[ -n "$no_mmap" ]] && effective_no_mmap="$no_mmap"
+    [[ -n "$flash_attn" ]] && effective_flash_attn="$flash_attn"
+    [[ -n "$gpus" ]] && effective_gpus="$gpus"
+    [[ -n "$disable_metal" ]] && [[ -z "$effective_disable_metal" ]] && effective_disable_metal="$disable_metal"
+  else
+    model_path="$(resolve_model_path "$model_arg")"
+  fi
+
+  if is_truthy "$effective_disable_metal" && [[ "$effective_n_gpu_layers" == "-1" ]]; then
+    # Disable full GPU offload when Metal is disabled on macOS.
+    effective_n_gpu_layers="0"
+  fi
+
+  warn_large_model "$model_path" "$effective_n_gpu_layers" "$effective_gpus"
 
   local -a chat_format_args=()
-  if [[ -n "$chat_format_arg" ]]; then
-    chat_format_args=(--chat_format "$chat_format_arg")
+  if [[ "$use_chat_template" -eq 1 ]] && [[ -z "$effective_chat_format" ]]; then
+    effective_chat_format="chat_template.default"
   fi
-  if [[ "$use_chat_template" -eq 1 ]]; then
-    chat_format_args+=(--use_chat_template)
+  if [[ -n "$effective_chat_format" ]]; then
+    chat_format_args=(--chat_format "$effective_chat_format")
+  fi
+  if [[ -n "$effective_no_mmap" ]]; then
+    chat_format_args+=(--use_mmap false)
+  fi
+  if [[ -n "$effective_flash_attn" ]]; then
+    chat_format_args+=(--flash_attn true)
   fi
 
-  if [[ -n "$LLAMA_SERVER_CUDA_VISIBLE_DEVICES" ]]; then
-    export CUDA_VISIBLE_DEVICES="$LLAMA_SERVER_CUDA_VISIBLE_DEVICES"
+  if [[ -n "$effective_gpus" ]]; then
+    export CUDA_VISIBLE_DEVICES="$effective_gpus"
   fi
+
+  LLAMA_SERVER_HOST="$effective_host"
+  LLAMA_SERVER_PORT="$effective_port"
+  LLAMA_SERVER_BACKEND_URL="http://$LLAMA_SERVER_HOST:$LLAMA_SERVER_PORT"
+  LLAMA_SERVER_DEFAULT_N_CTX="$effective_n_ctx"
+  LLAMA_SERVER_DEFAULT_N_GPU_LAYERS="$effective_n_gpu_layers"
+  LLAMA_SERVER_API_KEY="$effective_api_key"
 
   info "Starting llama_cpp.server..."
   info "Model: $model_path"
@@ -880,20 +1139,49 @@ start_server() {
   info "Port : $LLAMA_SERVER_PORT"
   info "Log  : $LOG_FILE"
 
-  "$PYTHON_BIN" -m llama_cpp.server \
-    --model "$model_path" \
-    --host "$LLAMA_SERVER_HOST" \
-    --port "$LLAMA_SERVER_PORT" \
-    --n_ctx "$LLAMA_SERVER_DEFAULT_N_CTX" \
-    --n_gpu_layers "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS" \
-    --api_key "$LLAMA_SERVER_API_KEY" \
-    "${chat_format_args[@]}" >>"$LOG_FILE" 2>&1 &
+  local -a server_cmd=(
+    "$PYTHON_BIN" -m llama_cpp.server
+    --model "$model_path"
+    --host "$LLAMA_SERVER_HOST"
+    --port "$LLAMA_SERVER_PORT"
+    --n_ctx "$LLAMA_SERVER_DEFAULT_N_CTX"
+    --n_gpu_layers "$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS"
+    --api_key "$LLAMA_SERVER_API_KEY"
+  )
+  if [[ "${#chat_format_args[@]}" -gt 0 ]]; then
+    server_cmd+=("${chat_format_args[@]}")
+  fi
+  local -a clean_cmd=()
+  local cmd_arg
+  for cmd_arg in "${server_cmd[@]}"; do
+    [[ -n "$cmd_arg" ]] && clean_cmd+=("$cmd_arg")
+  done
+  {
+    printf "CMD:"
+    for cmd_arg in "${clean_cmd[@]}"; do
+      printf " %q" "$cmd_arg"
+    done
+    printf "\n"
+  } >>"$LOG_FILE"
+  if is_truthy "$effective_disable_metal"; then
+    GGML_METAL=0 LLAMA_METAL=0 "${clean_cmd[@]}" >>"$LOG_FILE" 2>&1 &
+  else
+    "${clean_cmd[@]}" >>"$LOG_FILE" 2>&1 &
+  fi
   echo $! > "$LLAMA_SERVER_PID_FILE"
   echo "$model_path" > "$LLAMA_SERVER_MODEL_FILE"
+  echo "$LLAMA_SERVER_HOST" > "$LLAMA_SERVER_HOST_FILE"
+  echo "$LLAMA_SERVER_PORT" > "$LLAMA_SERVER_PORT_FILE"
 
   local started_pid
   started_pid="$(cat "$LLAMA_SERVER_PID_FILE")"
   info "Server started with PID $started_pid"
+
+  sleep 0.25
+  if ! kill -0 "$started_pid" 2>/dev/null; then
+    err "Server exited early. Check log: $LOG_FILE"
+    tail -n 20 "$LOG_FILE" >&2 || true
+  fi
 
   if [[ "$LLAMA_PROXY_ENABLED" == "1" ]]; then
     start_proxy
@@ -903,6 +1191,22 @@ start_server() {
 start_proxy() {
   if is_proxy_running; then
     err "Proxy already running. Use: $0 restart-proxy"
+    exit 1
+  fi
+
+  local existing_pid
+  existing_pid="$(find_pid_by_port "$LLAMA_PROXY_PORT")"
+  if [[ -n "$existing_pid" ]]; then
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+      if docker compose -f "$ROOT_DIR/docker-compose.yml" ps --status running proxy 2>/dev/null | grep -q "proxy"; then
+        err "Port $LLAMA_PROXY_PORT is already used by docker-compose proxy."
+        err "Stop it first with: docker compose stop proxy"
+        err "Or use the Docker proxy directly and do not run: $0 start-proxy"
+        exit 1
+      fi
+    fi
+    err "Port $LLAMA_PROXY_PORT is already in use by PID $existing_pid."
+    err "Free the port or change LLAMA_PROXY_PORT in runtime/config.env."
     exit 1
   fi
 
@@ -924,7 +1228,15 @@ start_proxy() {
     --host "$LLAMA_PROXY_HOST" \
     --port "$LLAMA_PROXY_PORT" >>"$PROXY_LOG_FILE" 2>&1 &
 
-  echo $! > "$LLAMA_PROXY_PID_FILE"
+  local started_pid="$!"
+  echo "$started_pid" > "$LLAMA_PROXY_PID_FILE"
+  sleep 0.25
+  if ! kill -0 "$started_pid" 2>/dev/null; then
+    err "Proxy exited early. Check log: $PROXY_LOG_FILE"
+    tail -n 20 "$PROXY_LOG_FILE" >&2 || true
+    rm -f "$LLAMA_PROXY_PID_FILE"
+    exit 1
+  fi
   info "Proxy started with PID $(cat "$LLAMA_PROXY_PID_FILE")"
 }
 
@@ -988,7 +1300,7 @@ restart_server() {
     stop_proxy
   fi
   stop_server
-  start_server "${1:-}"
+  start_server "$@"
 }
 
 restart_proxy() {
@@ -1001,8 +1313,8 @@ usage() {
 Usage: $0 <command> [args]
 
 Commands:
-  start single [model] [--chat-format fmt] [--use-chat-template] Start single server (optional model name/path)
-  start multi          Start multiple servers from $LLAMA_MULTI_CONFIG
+  start single [model] [--chat-format fmt] [--use-chat-template] [--disable-metal] [--no-prompt] Start single server (optional model name/path)
+  start multi [--no-prompt] Start multiple servers from $LLAMA_MULTI_CONFIG
   restart [model]      Restart current mode (single or multi)
   stop                 Stop current mode (single or multi)
   status [single|multi] [--strict] Show what's running (single or multi)
@@ -1026,11 +1338,11 @@ main() {
       case "$mode" in
         single)
           stop_multi
-          start_server "${1:-}"
+          start_server "$@"
           ;;
         multi)
           stop_server
-          start_multi
+          start_multi "$@"
           ;;
         ""|help|-h|--help)
           usage
@@ -1045,10 +1357,10 @@ main() {
       ;;
     restart)
       if is_server_running; then
-        restart_server "${1:-}"
+        restart_server "$@"
       else
         stop_multi
-        start_multi
+        start_multi "$@"
       fi
       ;;
     stop)
@@ -1076,10 +1388,10 @@ main() {
       done
       case "$mode" in
         "")
-          if is_server_running "$strict"; then
-            print_status "$strict"
-          elif has_running_instances; then
+          if has_running_instances; then
             status_multi "$strict"
+          elif is_server_running "$strict"; then
+            print_status "$strict"
           else
             echo "Mode : none"
             print_status "$strict"

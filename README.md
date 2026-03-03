@@ -9,10 +9,31 @@ Thin wrapper around `llama_cpp.server` that runs **one GGUF model** and exposes 
 ./console.sh start single
 ```
 
-To set a chat template in single mode:
+To use a GGUF chat template in single mode:
 ```bash
-./console.sh start single --chat-format chat_template.default --use-chat-template
+./console.sh start single --use-chat-template
 ```
+
+To disable Metal on macOS (if llama_cpp crashes on startup):
+```bash
+./console.sh start single --disable-metal
+```
+
+On macOS, `runtime/install.sh` pins `llama-cpp-python` to `0.2.90` because newer `0.3.16` builds can crash in Metal backend initialization on some machines.
+
+To skip prompts (automation):
+```bash
+./console.sh start single --no-prompt
+./console.sh start multi --no-prompt
+```
+
+Standard smoke test:
+```bash
+./bin/smoke_test.sh
+```
+Optional flags:
+- `--no-proxy` to skip proxy checks
+- `--no-multi` to skip multi-mode checks
 
 ## Layout
 
@@ -22,16 +43,16 @@ To set a chat template in single mode:
 
 ## Multi-model (multiple servers)
 
-This project is single-model by default. To run **multiple models**, start multiple `llama_cpp.server` processes via the CLI. `start single` is interactive, while `start multi` is non-interactive and uses `config/models.yaml` exactly as written.
+This project is single-model by default. The `config/models.yaml` file is a catalog of models and their parameters. `start single` prompts you to pick one entry from this catalog, and `start multi` prompts for which entries to launch (or “all”).
 
 1) Create a config:
 ```bash
 cp config/models.yaml.example config/models.yaml
 ```
 
-2) Edit `config/models.yaml` to map models to GPUs and ports.
+2) Edit `config/models.yaml` to map models to GPUs, ports, and optional flags (e.g. `chat_format`, `no_mmap`, `flash_attn`, `disable_metal`).
 
-3) Start all:
+3) Start (prompts for selection):
 ```bash
 ./console.sh start multi
 ```
@@ -52,6 +73,8 @@ Models must be **GGUF** files placed in `models/`.
 For sharded GGUF (e.g., `*-00001-of-00003.gguf`), place all shards in a subfolder under `models/`. The CLI will show the folder as a single “sharded” option and pick the `00001` shard automatically.
 If shards are placed directly in `models/`, the CLI will still group them, but it will warn and recommend moving them into a subfolder to avoid clutter and accidental selection errors.
 If a model emits raw `<|channel|>` / `<|assistant|>` markers, set `chat_format` per instance in `config/models.yaml` to the correct template for that GGUF. If `chat_format` is omitted, llama-cpp uses its default/auto behavior.
+`no_mmap: true` passes `--use_mmap false`, and `flash_attn: true` passes `--flash_attn true`.
+`disable_metal: true` disables Metal on macOS (useful when the Metal backend crashes or is unavailable).
 
 Example (Hugging Face CLI using `hf`):
 ```bash

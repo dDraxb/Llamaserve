@@ -2,6 +2,12 @@
 
 All notable changes to this project.
 
+## 2026-03-19
+
+### Fixed
+- `bin/smoke_test.sh` now resolves the effective single-mode backend target from the model catalog/runtime state instead of assuming port `8002`.
+- Backend smoke verification now uses the actual runtime host, port, model, and API key after startup, so full smoke runs succeed when the selected single-mode instance binds to a non-default port.
+
 ## 2026-03-04
 
 ### Changed

@@ -8,6 +8,7 @@ MODELS_CFG="$ROOT_DIR/config/models.yaml"
 CONSOLE="$ROOT_DIR/console.sh"
 USER_CLI="$ROOT_DIR/bin/user_management_cli.sh"
 BOOTSTRAP_CLI="$ROOT_DIR/bin/bootstrap_user_cli.sh"
+RUNTIME_PYTHON="$ROOT_DIR/runtime/.venv/bin/python"
 
 WITH_MULTI=1
 WITH_PROXY=1
@@ -91,10 +92,56 @@ if [[ -z "$MODEL_PICK" ]]; then
   exit 1
 fi
 MODEL_BASENAME="$(basename "$MODEL_PICK")"
+SINGLE_TARGET="$MODEL_BASENAME"
 
 BACKEND_HOST="${LLAMA_SERVER_HOST:-127.0.0.1}"
 BACKEND_PORT="${LLAMA_SERVER_PORT:-8002}"
 BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
+SINGLE_API_KEY="${LLAMA_SERVER_API_KEY:-}"
+
+if [[ -f "$MODELS_CFG" && -x "$RUNTIME_PYTHON" ]]; then
+  first_entry="$("$RUNTIME_PYTHON" - <<PY
+import pathlib
+import sys
+import yaml
+
+path = pathlib.Path(r"""$MODELS_CFG""")
+data = yaml.safe_load(path.read_text()) or {}
+entries = data.get("models") or data.get("instances") or []
+if not entries:
+    raise SystemExit(0)
+entry = entries[0]
+print("|".join([
+    str(entry.get("name") or "").strip(),
+    str(entry.get("model") or "").strip(),
+    str(entry.get("host") or "").strip(),
+    str(entry.get("port") or "").strip(),
+    str(entry.get("api_key") or "").strip(),
+]))
+PY
+)"
+  if [[ -n "$first_entry" ]]; then
+    IFS='|' read -r single_name single_model single_host single_port single_api_key <<<"$first_entry"
+    if [[ -n "$single_name" ]]; then
+      SINGLE_TARGET="$single_name"
+    elif [[ -n "$single_model" ]]; then
+      SINGLE_TARGET="$single_model"
+    fi
+    if [[ -n "$single_model" ]]; then
+      MODEL_BASENAME="$(basename "$single_model")"
+    fi
+    if [[ -n "$single_host" ]]; then
+      BACKEND_HOST="$single_host"
+    fi
+    if [[ -n "$single_port" ]]; then
+      BACKEND_PORT="$single_port"
+    fi
+    if [[ -n "$single_api_key" ]]; then
+      SINGLE_API_KEY="$single_api_key"
+    fi
+    BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
+  fi
+fi
 
 TEMP_USER=""
 TEMP_TOKEN=""
@@ -116,16 +163,26 @@ echo "[1/6] Reset state"
 "$CONSOLE" stop >/dev/null 2>&1 || true
 
 echo "[2/6] Single mode start + status"
-"$CONSOLE" start single "$MODEL_BASENAME" >/dev/null
+"$CONSOLE" start single "$SINGLE_TARGET" >/dev/null
 sleep 2
 single_status="$("$CONSOLE" status)"
 echo "$single_status" | rg -q "Server status: RUNNING"
+if [[ -f "$ROOT_DIR/runtime/llama_server.host" ]]; then
+  BACKEND_HOST="$(cat "$ROOT_DIR/runtime/llama_server.host")"
+fi
+if [[ -f "$ROOT_DIR/runtime/llama_server.port" ]]; then
+  BACKEND_PORT="$(cat "$ROOT_DIR/runtime/llama_server.port")"
+fi
+if [[ -f "$ROOT_DIR/runtime/llama_server.model" ]]; then
+  MODEL_BASENAME="$(basename "$(cat "$ROOT_DIR/runtime/llama_server.model")")"
+fi
+BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
 
 echo "[3/6] Backend API checks"
 curl -sS --max-time 20 "$BACKEND_URL/v1/models" \
-  -H "Authorization: Bearer $LLAMA_SERVER_API_KEY" >/dev/null
+  -H "Authorization: Bearer $SINGLE_API_KEY" >/dev/null
 curl -sS --max-time 30 "$BACKEND_URL/v1/chat/completions" \
-  -H "Authorization: Bearer $LLAMA_SERVER_API_KEY" \
+  -H "Authorization: Bearer $SINGLE_API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"$MODEL_BASENAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in one sentence.\"}],\"max_tokens\":30}" >/dev/null
 

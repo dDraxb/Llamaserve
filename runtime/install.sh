@@ -128,6 +128,10 @@ LLAMA_SERVER_PORT="8002"
 # Default model settings
 LLAMA_SERVER_DEFAULT_N_CTX=8192
 LLAMA_SERVER_DEFAULT_N_GPU_LAYERS=-1
+LLAMA_SERVER_CHAT_FORMAT=""
+LLAMA_SERVER_HF_PRETRAINED_MODEL_NAME_OR_PATH=""
+LLAMA_SERVER_HF_TOKENIZER_CONFIG_PATH=""
+LLAMA_SERVER_HF_MODEL_REPO_ID=""
 
 # API key required for all requests (Authorization: Bearer <key>)
 LLAMA_SERVER_API_KEY="$API_KEY_GENERATED"
@@ -318,7 +322,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   # 0.3.16 is unstable on some macOS setups (Metal backend segfault at startup).
   LLAMA_CPP_SPEC="llama-cpp-python[server]==0.2.90"
 fi
-"$PIP_BIN" install "$LLAMA_CPP_SPEC" "huggingface_hub" "psycopg2-binary" "PyYAML"
+"$PIP_BIN" install "$LLAMA_CPP_SPEC" "huggingface_hub" "psycopg2-binary" "PyYAML" "transformers"
 
 echo
 

@@ -40,7 +40,7 @@ From the perspective of this file (`agents.md`), the project root looks like:
     *.gguf          # one or more GGUF LLM model files (downloaded or copied here)
 
 Note: For sharded GGUF (e.g., `*-00001-of-00003.gguf`), place all shards in a subfolder under `models/` so the CLI shows a single “sharded” option and picks the `00001` shard.
-If a model outputs raw `<|channel|>` markers, set `chat_format` per instance in `config/models.yaml` to the correct template for that GGUF. If omitted, llama-cpp uses its default/auto behavior. `no_mmap: true` maps to `--use_mmap false`, `flash_attn: true` maps to `--flash_attn true`, and `disable_metal: true` disables Metal on macOS.
+If a model outputs raw `<|channel|>` markers, set `chat_format` per instance in `config/models.yaml` to the correct template for that GGUF. If omitted, llama-cpp uses its default/auto behavior. For OpenAI-style tool calling, some handlers also need tokenizer settings such as `hf_pretrained_model_name_or_path`, `hf_tokenizer_config_path`, or `hf_model_repo_id`. `no_mmap: true` maps to `--use_mmap false`, `flash_attn: true` maps to `--flash_attn true`, and `disable_metal: true` disables Metal on macOS.
 
 ---
 
@@ -103,7 +103,7 @@ OpenAI compatibility is best-effort; optional parameters may be ignored or unsup
 OpenAI `/v1/completions` is a legacy API; use `/v1/chat/completions` where possible. citeturn0search0
 
 Model catalog: use `config/models.yaml`. `start single` prompts for one entry; `start multi` prompts for one or more entries to launch.
-Proxy routing for multi-model: map model IDs to backends in `config/proxy_routes.yaml` (see example).
+Proxy routing for multi-model: map model IDs to backends in `config/proxy_routes.yaml` (see example). If a routed model emits raw textual tool-call markers instead of OpenAI `tool_calls`, set `tool_call_parser` on the proxy route to enable response normalization without coupling startup config to a specific model family.
 `restart`, `stop`, and `status` operate on the currently running mode (single or multi).
 
 Supported chat parameters (llama-cpp-python API exposure): `model`, `messages`, `stream`, `temperature`, `top_p`, `top_k`, `min_p`, `typical_p`, `stop`, `max_tokens`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `seed`, `logit_bias`, `logprobs`, `top_logprobs`, `response_format`, `functions`/`function_call`, `tools`/`tool_choice` (model/chat_format-dependent). citeturn11view0turn7view0

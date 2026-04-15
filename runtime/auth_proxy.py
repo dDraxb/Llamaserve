@@ -11,7 +11,9 @@ import httpx
 import yaml
 from psycopg2 import pool
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from tool_call_adapter import normalize_chat_completion
 
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -90,8 +92,8 @@ def _filter_headers(headers: Dict[str, str]) -> Dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() not in HOP_BY_HOP_HEADERS}
 
 
-def _load_routes() -> Dict[str, str]:
-    routes: Dict[str, str] = {}
+def _load_routes() -> Dict[str, Dict[str, str]]:
+    routes: Dict[str, Dict[str, str]] = {}
     path = Path(ROUTES_FILE)
     if not path.exists():
         return routes
@@ -106,7 +108,10 @@ def _load_routes() -> Dict[str, str]:
                     (parsed.scheme, f"{ROUTE_HOST_OVERRIDE}:{parsed.port}" if parsed.port else ROUTE_HOST_OVERRIDE,
                      parsed.path, parsed.params, parsed.query, parsed.fragment)
                 )
-            routes[model] = url
+            routes[model] = {
+                "backend_url": url,
+                "tool_call_parser": (item.get("tool_call_parser") or "").strip(),
+            }
     return routes
 
 
@@ -244,6 +249,8 @@ async def proxy(path: str, request: Request):
 
     routes = _load_routes()
     url = f"{BACKEND_URL.rstrip('/')}/{path}"
+    route_config: Dict[str, str] = {}
+    request_payload: Dict[str, object] = {}
     headers = _filter_headers(dict(request.headers))
     headers["x-llama-user"] = username
     if BACKEND_API_KEY:
@@ -260,8 +267,8 @@ async def proxy(path: str, request: Request):
             async with httpx.AsyncClient(timeout=30) as client:
                 data = []
                 seen = set()
-                for route_model, route_url in routes.items():
-                    route = f"{route_url.rstrip('/')}/v1/models"
+                for route_model, route_config in routes.items():
+                    route = f"{route_config['backend_url'].rstrip('/')}/v1/models"
                     try:
                         resp = await client.get(
                             route,
@@ -279,10 +286,11 @@ async def proxy(path: str, request: Request):
                 return {"object": "list", "data": data}
         else:
             try:
-                payload = json.loads(body.decode("utf-8")) if body else {}
-                model = payload.get("model")
+                request_payload = json.loads(body.decode("utf-8")) if body else {}
+                model = request_payload.get("model")
                 if model and model in routes:
-                    url = f"{routes[model].rstrip('/')}/{path}"
+                    route_config = routes[model]
+                    url = f"{route_config['backend_url'].rstrip('/')}/{path}"
             except Exception:
                 pass
 
@@ -297,6 +305,13 @@ async def proxy(path: str, request: Request):
         )
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
+    should_normalize = (
+        path == "v1/chat/completions"
+        and request_payload.get("stream") is not True
+        and bool(request_payload.get("tools") or request_payload.get("functions"))
+        and bool(route_config.get("tool_call_parser"))
+    )
+
     start_time = time.monotonic()
     client = httpx.AsyncClient(timeout=None)
     try:
@@ -308,7 +323,7 @@ async def proxy(path: str, request: Request):
                 headers=headers,
                 content=body,
             ),
-            stream=True,
+            stream=not should_normalize,
         )
     except httpx.RequestError:
         await client.aclose()
@@ -317,6 +332,51 @@ async def proxy(path: str, request: Request):
 
     response_bytes = 0
     resp_headers = _filter_headers(dict(resp.headers))
+
+    if should_normalize:
+        raw_response = b""
+        try:
+            raw_response = await resp.aread()
+            response_bytes = len(raw_response)
+            response_payload = json.loads(raw_response.decode("utf-8"))
+            response_payload, _ = normalize_chat_completion(
+                request_payload,
+                response_payload,
+                route_config["tool_call_parser"],
+            )
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            _log_request(
+                username,
+                f"/{path}",
+                resp.status_code,
+                duration_ms=duration_ms,
+                request_bytes=request_bytes,
+                response_bytes=response_bytes,
+            )
+            return JSONResponse(
+                content=response_payload,
+                status_code=resp.status_code,
+                headers=resp_headers,
+            )
+        except Exception:
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            _log_request(
+                username,
+                f"/{path}",
+                resp.status_code,
+                duration_ms=duration_ms,
+                request_bytes=request_bytes,
+                response_bytes=response_bytes,
+            )
+            return StreamingResponse(
+                iter([raw_response]),
+                status_code=resp.status_code,
+                headers=resp_headers,
+                media_type=resp.headers.get("content-type"),
+            )
+        finally:
+            await resp.aclose()
+            await client.aclose()
 
     async def _stream():
         nonlocal response_bytes

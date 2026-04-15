@@ -1,5 +1,7 @@
 routes:
   - model: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
     backend_url: http://127.0.0.1:8002
+    tool_call_parser: ""
   - model: openai_gpt-oss-20b-Q4_K_M.gguf
     backend_url: http://127.0.0.1:8003
+    tool_call_parser: ""

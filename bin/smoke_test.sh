@@ -41,16 +41,16 @@ if [[ ! -x "$CONSOLE" ]]; then
 fi
 
 if [[ "$MODE" == "ci" ]]; then
-  echo "[1/4] Script syntax"
+  echo "[1/5] Script syntax"
   bash -n "$ROOT_DIR/console.sh"
   bash -n "$ROOT_DIR/runtime/install.sh"
   bash -n "$ROOT_DIR/bin/"*.sh
 
-  echo "[2/4] Console contract"
+  echo "[2/5] Console contract"
   "$CONSOLE" -h >/dev/null
   "$CONSOLE" status >/dev/null
 
-  echo "[3/4] YAML contract"
+  echo "[3/5] YAML contract"
   if python3 -c "import yaml" >/dev/null 2>&1; then
     python3 - <<PY
 import pathlib, yaml
@@ -68,7 +68,59 @@ PY
     echo "yaml_module_missing_fallback_ok"
   fi
 
-  echo "[4/4] PASS"
+  echo "[4/5] Tool adapter contract"
+  python3 - <<PY
+import importlib.util
+import json
+import pathlib
+
+root = pathlib.Path(r"""$ROOT_DIR""")
+spec = importlib.util.spec_from_file_location("tool_call_adapter", root / "runtime" / "tool_call_adapter.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+request_payload = {
+    "model": "GPT-oss-120B",
+    "tools": [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_performance",
+                "parameters": {"type": "object"},
+            },
+        }
+    ],
+}
+response_payload = {
+    "choices": [
+        {
+            "message": {
+                "role": "assistant",
+                "content": "<|channel|>analysis<|message|>thinking<|end|><|start|>assistant<|channel|>commentary to=functions.get_performance <|constrain|>json<|message|>{\\"serviceName\\":\\"service\\",\\"minutes\\":30,\\"windowMinutes\\":10}",
+            },
+            "finish_reason": "stop",
+        }
+    ]
+}
+normalized, changed = module.normalize_chat_completion(
+    request_payload,
+    response_payload,
+    "channel-tag-tools",
+)
+assert changed is True
+choice = normalized["choices"][0]
+assert choice["finish_reason"] == "tool_calls"
+tool_call = choice["message"]["tool_calls"][0]
+assert tool_call["function"]["name"] == "get_performance"
+assert json.loads(tool_call["function"]["arguments"]) == {
+    "serviceName": "service",
+    "minutes": 30,
+    "windowMinutes": 10,
+}
+print("tool_adapter_ok")
+PY
+
+  echo "[5/5] PASS"
   echo "Smoke test succeeded (ci mode)."
   exit 0
 fi
@@ -185,6 +237,10 @@ curl -sS --max-time 30 "$BACKEND_URL/v1/chat/completions" \
   -H "Authorization: Bearer $SINGLE_API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"$MODEL_BASENAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in one sentence.\"}],\"max_tokens\":30}" >/dev/null
+curl -sS --max-time 30 "$BACKEND_URL/v1/chat/completions" \
+  -H "Authorization: Bearer $SINGLE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"model\":\"$MODEL_BASENAME\",\"messages\":[{\"role\":\"user\",\"content\":\"Return plain text only.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"echo_text\",\"description\":\"Echo text back to the caller\",\"parameters\":{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"]}}}],\"tool_choice\":\"none\",\"max_tokens\":20}" >/dev/null
 
 if [[ "$WITH_PROXY" -eq 1 ]]; then
   echo "[4/6] Proxy auth checks (if docker proxy is running)"

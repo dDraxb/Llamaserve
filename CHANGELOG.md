@@ -2,6 +2,23 @@
 
 All notable changes to this project.
 
+## 2026-04-15
+
+### Added
+- OpenAI-style tool-calling startup support for `llama_cpp.server` via model catalog settings:
+  - `hf_pretrained_model_name_or_path`
+  - `hf_tokenizer_config_path`
+  - `hf_model_repo_id`
+- Validation for tokenizer-dependent chat handlers such as `hf-autotokenizer`, `hf-tokenizer-config`, `functionary-v1`, and `functionary-v2`.
+- `transformers` runtime dependency in `runtime/install.sh` for tokenizer-backed tool-calling handlers.
+- Proxy-side tool-call response normalization adapters via `tool_call_parser` in `config/proxy_routes.yaml`.
+
+### Changed
+- Single-mode and multi-mode startup now pass tokenizer-related model settings through to `python -m llama_cpp.server`.
+- `config/models.yaml.example`, `README.md`, and `agents.md` now document the OpenAI-style tool-calling path and its model/template requirements.
+- `bin/smoke_test.sh` now sends a `/v1/chat/completions` request with an OpenAI-style `tools` payload to verify endpoint acceptance.
+- The auth proxy can now normalize raw tagged `to=functions.NAME` style outputs into OpenAI `tool_calls` for non-streaming chat completions when a route-specific parser is configured.
+
 ## 2026-03-19
 
 ### Fixed

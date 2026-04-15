@@ -54,6 +54,68 @@ instance_log_file() {
   echo "$LLAMA_SERVER_LOG_DIR/llama_server_$1.log"
 }
 
+resolve_support_file_path() {
+  local input_path="$1"
+  if [[ -z "$input_path" ]]; then
+    return 0
+  fi
+
+  if [[ -f "$input_path" ]]; then
+    printf '%s\n' "$input_path"
+    return 0
+  fi
+
+  if [[ -f "$ROOT_DIR/$input_path" ]]; then
+    printf '%s\n' "$ROOT_DIR/$input_path"
+    return 0
+  fi
+
+  printf '%s\n' "$input_path"
+}
+
+validate_chat_handler_requirements() {
+  local name="$1"
+  local chat_format="$2"
+  local hf_pretrained_model_name_or_path="$3"
+  local hf_tokenizer_config_path="$4"
+  local resolved_hf_tokenizer_config_path="$5"
+
+  if [[ "$chat_format" == "hf-autotokenizer" ]]; then
+    if [[ -z "$hf_pretrained_model_name_or_path" ]]; then
+      err "Instance [$name] requires hf_pretrained_model_name_or_path when chat_format=hf-autotokenizer."
+      return 1
+    fi
+  fi
+
+  if [[ "$chat_format" == "hf-tokenizer-config" ]]; then
+    if [[ -z "$hf_tokenizer_config_path" ]]; then
+      err "Instance [$name] requires hf_tokenizer_config_path when chat_format=hf-tokenizer-config."
+      return 1
+    fi
+    if [[ ! -f "$resolved_hf_tokenizer_config_path" ]]; then
+      err "Instance [$name] hf_tokenizer_config_path not found: $hf_tokenizer_config_path"
+      return 1
+    fi
+  fi
+
+  if [[ "$chat_format" == "functionary-v1" ]] || [[ "$chat_format" == "functionary-v2" ]]; then
+    if [[ -z "$hf_pretrained_model_name_or_path" ]]; then
+      err "Instance [$name] requires hf_pretrained_model_name_or_path when chat_format=$chat_format."
+      return 1
+    fi
+    if ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+sys.exit(0 if importlib.util.find_spec("transformers") else 1)
+PY
+    then
+      err "Instance [$name] needs the Python package 'transformers' for $chat_format."
+      err "Re-run: ./runtime/install.sh"
+      return 1
+    fi
+  fi
+}
+
 is_instance_running() {
   local name="$1"
   local pid_file
@@ -99,6 +161,9 @@ start_instance() {
   local no_mmap="${10:-}"
   local flash_attn="${11:-}"
   local disable_metal="${12:-}"
+  local hf_pretrained_model_name_or_path="${13:-}"
+  local hf_tokenizer_config_path="${14:-}"
+  local hf_model_repo_id="${15:-}"
 
   mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
 
@@ -131,6 +196,9 @@ start_instance() {
   local effective_no_mmap="$no_mmap"
   local effective_flash_attn="$flash_attn"
   local effective_disable_metal="$disable_metal"
+  local effective_hf_pretrained_model_name_or_path="$hf_pretrained_model_name_or_path"
+  local effective_hf_tokenizer_config_path="$hf_tokenizer_config_path"
+  local effective_hf_model_repo_id="$hf_model_repo_id"
 
   [[ -z "$effective_host" ]] && effective_host="$LLAMA_SERVER_HOST"
   [[ -z "$effective_port" ]] && effective_port="$LLAMA_SERVER_PORT"
@@ -138,6 +206,16 @@ start_instance() {
   [[ -z "$effective_n_gpu_layers" ]] && effective_n_gpu_layers="$LLAMA_SERVER_DEFAULT_N_GPU_LAYERS"
   [[ -z "$effective_chat_format" ]] && effective_chat_format="$LLAMA_SERVER_CHAT_FORMAT"
   [[ -z "$effective_disable_metal" ]] && effective_disable_metal="$LLAMA_SERVER_DISABLE_METAL"
+  [[ -z "$effective_hf_pretrained_model_name_or_path" ]] && effective_hf_pretrained_model_name_or_path="${LLAMA_SERVER_HF_PRETRAINED_MODEL_NAME_OR_PATH:-}"
+  [[ -z "$effective_hf_tokenizer_config_path" ]] && effective_hf_tokenizer_config_path="${LLAMA_SERVER_HF_TOKENIZER_CONFIG_PATH:-}"
+  [[ -z "$effective_hf_model_repo_id" ]] && effective_hf_model_repo_id="${LLAMA_SERVER_HF_MODEL_REPO_ID:-}"
+  effective_hf_tokenizer_config_path="$(resolve_support_file_path "$effective_hf_tokenizer_config_path")"
+  validate_chat_handler_requirements \
+    "$name" \
+    "$effective_chat_format" \
+    "$effective_hf_pretrained_model_name_or_path" \
+    "$hf_tokenizer_config_path" \
+    "$effective_hf_tokenizer_config_path"
   if is_truthy "$effective_disable_metal" && [[ "$effective_n_gpu_layers" == "-1" ]]; then
     # Disable full GPU offload when Metal is disabled on macOS.
     effective_n_gpu_layers="0"
@@ -159,6 +237,15 @@ start_instance() {
   fi
   if [[ -n "$effective_flash_attn" ]]; then
     chat_format_args+=(--flash_attn true)
+  fi
+  if [[ -n "$effective_hf_pretrained_model_name_or_path" ]]; then
+    chat_format_args+=(--hf_pretrained_model_name_or_path "$effective_hf_pretrained_model_name_or_path")
+  fi
+  if [[ -n "$effective_hf_tokenizer_config_path" ]]; then
+    chat_format_args+=(--hf_tokenizer_config_path "$effective_hf_tokenizer_config_path")
+  fi
+  if [[ -n "$effective_hf_model_repo_id" ]]; then
+    chat_format_args+=(--hf_model_repo_id "$effective_hf_model_repo_id")
   fi
 
   local -a server_cmd=(
@@ -286,9 +373,28 @@ for inst in instances:
     no_mmap = get_value(inst, "no_mmap").lower()
     flash_attn = get_value(inst, "flash_attn").lower()
     disable_metal = get_value(inst, "disable_metal").lower()
+    hf_pretrained_model_name_or_path = get_value(inst, "hf_pretrained_model_name_or_path")
+    hf_tokenizer_config_path = get_value(inst, "hf_tokenizer_config_path")
+    hf_model_repo_id = get_value(inst, "hf_model_repo_id")
     def to_flag(value):
         return "1" if value in ("1", "true", "yes", "on") else ""
-    print("|".join([name, model, host, port, gpus, n_ctx, n_gpu_layers, api_key, chat_format, to_flag(no_mmap), to_flag(flash_attn), to_flag(disable_metal)]))
+    print("|".join([
+        name,
+        model,
+        host,
+        port,
+        gpus,
+        n_ctx,
+        n_gpu_layers,
+        api_key,
+        chat_format,
+        to_flag(no_mmap),
+        to_flag(flash_attn),
+        to_flag(disable_metal),
+        hf_pretrained_model_name_or_path,
+        hf_tokenizer_config_path,
+        hf_model_repo_id,
+    ]))
 PY
 }
 
@@ -329,7 +435,7 @@ start_multi() {
     echo "Available models:"
     local i
     for i in "${!entries[@]}"; do
-      IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"${entries[$i]}"
+      IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"${entries[$i]}"
       printf "  [%d] %s (%s)\n" "$((i + 1))" "$name" "$(basename "$model")"
     done
     while true; do
@@ -369,12 +475,12 @@ start_multi() {
       done
       [[ "$found" -eq 1 ]] || continue
     fi
-    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"${entries[$((idx - 1))]}"
+    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"${entries[$((idx - 1))]}"
     if is_instance_running "$name"; then
       err "Instance already running, skipping: $name"
       continue
     fi
-    start_instance "$name" "$model" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key" "$chat_format" "$no_mmap" "$flash_attn" "$disable_metal"
+    start_instance "$name" "$model" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key" "$chat_format" "$no_mmap" "$flash_attn" "$disable_metal" "$hf_pretrained_model_name_or_path" "$hf_tokenizer_config_path" "$hf_model_repo_id"
   done
 }
 
@@ -403,7 +509,7 @@ status_multi() {
   echo "Mode : multi"
   if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
     local entry
-  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal; do
+  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id; do
       local effective_port="${port:-$LLAMA_SERVER_PORT}"
       if ! is_instance_running "$name" && [[ "$strict" -eq 0 ]]; then
         repair_instance_pid "$name" "$effective_port" || true

@@ -7,8 +7,12 @@ models:
     n_ctx: 8192
     n_gpu_layers: -1
     chat_format: ""
+    hf_pretrained_model_name_or_path: ""
+    hf_tokenizer_config_path: ""
+    hf_model_repo_id: ""
     no_mmap: false
     flash_attn: false
+    disable_metal: false
 
   - name: gpu1_gptoss
     model: openai_gpt-oss-20b-Q4_K_M.gguf
@@ -18,5 +22,9 @@ models:
     n_ctx: 8192
     n_gpu_layers: -1
     chat_format: ""
+    hf_pretrained_model_name_or_path: ""
+    hf_tokenizer_config_path: ""
+    hf_model_repo_id: ""
     no_mmap: false
     flash_attn: false
+    disable_metal: false

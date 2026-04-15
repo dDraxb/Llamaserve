@@ -41,6 +41,9 @@ LLAMA_SERVER_PORT="${LLAMA_SERVER_PORT:-8002}"
 LLAMA_SERVER_DEFAULT_N_CTX="${LLAMA_SERVER_DEFAULT_N_CTX:-8192}"
 LLAMA_SERVER_DEFAULT_N_GPU_LAYERS="${LLAMA_SERVER_DEFAULT_N_GPU_LAYERS:--1}"
 LLAMA_SERVER_CHAT_FORMAT="${LLAMA_SERVER_CHAT_FORMAT:-}"
+LLAMA_SERVER_HF_PRETRAINED_MODEL_NAME_OR_PATH="${LLAMA_SERVER_HF_PRETRAINED_MODEL_NAME_OR_PATH:-}"
+LLAMA_SERVER_HF_TOKENIZER_CONFIG_PATH="${LLAMA_SERVER_HF_TOKENIZER_CONFIG_PATH:-}"
+LLAMA_SERVER_HF_MODEL_REPO_ID="${LLAMA_SERVER_HF_MODEL_REPO_ID:-}"
 LLAMA_SERVER_API_KEY="${LLAMA_SERVER_API_KEY:-}"
 LLAMA_SERVER_PID_FILE="${LLAMA_SERVER_PID_FILE:-$RUNTIME_DIR/llama_server.pid}"
 LLAMA_SERVER_MODEL_FILE="${LLAMA_SERVER_MODEL_FILE:-$RUNTIME_DIR/llama_server.model}"
@@ -365,7 +368,7 @@ start_server() {
   if [[ -n "$model_arg" ]] && [[ "${#catalog_entries[@]}" -gt 0 ]]; then
     local entry
     for entry in "${catalog_entries[@]}"; do
-      IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"$entry"
+      IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"$entry"
       if [[ "$model_arg" == "$name" ]] || [[ "$model_arg" == "$model" ]] || [[ "$model_arg" == "$(basename "$model")" ]]; then
         selected_entry="$entry"
         break
@@ -380,7 +383,7 @@ start_server() {
       echo "Available models:"
       local i
       for i in "${!catalog_entries[@]}"; do
-        IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"${catalog_entries[$i]}"
+        IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"${catalog_entries[$i]}"
         printf "  [%d] %s (%s)\n" "$((i + 1))" "$name" "$(basename "$model")"
       done
       local choice
@@ -408,7 +411,7 @@ start_server() {
   if [[ -z "$model_arg" ]] && [[ "${#catalog_entries[@]}" -eq 0 ]]; then
     model_path="$(select_model_interactively)"
   elif [[ -n "$selected_entry" ]]; then
-    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"$selected_entry"
+    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"$selected_entry"
     model_path="$(resolve_model_path "$model")"
   else
     model_path="$(resolve_model_path "$model_arg")"
@@ -429,9 +432,13 @@ start_server() {
   local effective_flash_attn=""
   local effective_gpus="$LLAMA_SERVER_CUDA_VISIBLE_DEVICES"
   local effective_disable_metal="$disable_metal_arg"
+  local effective_hf_pretrained_model_name_or_path="$LLAMA_SERVER_HF_PRETRAINED_MODEL_NAME_OR_PATH"
+  local effective_hf_tokenizer_config_path="$LLAMA_SERVER_HF_TOKENIZER_CONFIG_PATH"
+  local effective_hf_model_repo_id="$LLAMA_SERVER_HF_MODEL_REPO_ID"
+  local raw_hf_tokenizer_config_path="$LLAMA_SERVER_HF_TOKENIZER_CONFIG_PATH"
 
   if [[ -n "$selected_entry" ]]; then
-    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal <<<"$selected_entry"
+    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"$selected_entry"
     model_path="$(resolve_model_path "$model")"
     [[ -n "$host" ]] && effective_host="$host"
     [[ -n "$port" ]] && effective_port="$port"
@@ -443,9 +450,21 @@ start_server() {
     [[ -n "$flash_attn" ]] && effective_flash_attn="$flash_attn"
     [[ -n "$gpus" ]] && effective_gpus="$gpus"
     [[ -n "$disable_metal" ]] && [[ -z "$effective_disable_metal" ]] && effective_disable_metal="$disable_metal"
+    [[ -n "$hf_pretrained_model_name_or_path" ]] && effective_hf_pretrained_model_name_or_path="$hf_pretrained_model_name_or_path"
+    [[ -n "$hf_tokenizer_config_path" ]] && effective_hf_tokenizer_config_path="$hf_tokenizer_config_path"
+    [[ -n "$hf_tokenizer_config_path" ]] && raw_hf_tokenizer_config_path="$hf_tokenizer_config_path"
+    [[ -n "$hf_model_repo_id" ]] && effective_hf_model_repo_id="$hf_model_repo_id"
   else
     model_path="$(resolve_model_path "$model_arg")"
   fi
+
+  effective_hf_tokenizer_config_path="$(resolve_support_file_path "$effective_hf_tokenizer_config_path")"
+  validate_chat_handler_requirements \
+    "single" \
+    "$effective_chat_format" \
+    "$effective_hf_pretrained_model_name_or_path" \
+    "$raw_hf_tokenizer_config_path" \
+    "$effective_hf_tokenizer_config_path"
 
   if is_truthy "$effective_disable_metal" && [[ "$effective_n_gpu_layers" == "-1" ]]; then
     # Disable full GPU offload when Metal is disabled on macOS.
@@ -467,6 +486,15 @@ start_server() {
   fi
   if [[ -n "$effective_flash_attn" ]]; then
     chat_format_args+=(--flash_attn true)
+  fi
+  if [[ -n "$effective_hf_pretrained_model_name_or_path" ]]; then
+    chat_format_args+=(--hf_pretrained_model_name_or_path "$effective_hf_pretrained_model_name_or_path")
+  fi
+  if [[ -n "$effective_hf_tokenizer_config_path" ]]; then
+    chat_format_args+=(--hf_tokenizer_config_path "$effective_hf_tokenizer_config_path")
+  fi
+  if [[ -n "$effective_hf_model_repo_id" ]]; then
+    chat_format_args+=(--hf_model_repo_id "$effective_hf_model_repo_id")
   fi
 
   if [[ -n "$effective_gpus" ]]; then

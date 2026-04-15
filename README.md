@@ -64,7 +64,7 @@ This project is single-model by default. The `config/models.yaml` file is a cata
 cp config/models.yaml.example config/models.yaml
 ```
 
-2) Edit `config/models.yaml` to map models to GPUs, ports, and optional flags (e.g. `chat_format`, `no_mmap`, `flash_attn`, `disable_metal`).
+2) Edit `config/models.yaml` to map models to GPUs, ports, and optional flags (e.g. `chat_format`, `hf_pretrained_model_name_or_path`, `hf_tokenizer_config_path`, `hf_model_repo_id`, `no_mmap`, `flash_attn`, `disable_metal`).
 
 3) Start (prompts for selection):
 ```bash
@@ -79,6 +79,7 @@ cp config/models.yaml.example config/models.yaml
 Each entry maps to a separate server instance; use distinct ports and optional `cuda_visible_devices`.
 `restart`, `stop`, and `status` operate on the currently running mode (single or multi).
 To route by model through the proxy, create `config/proxy_routes.yaml` from the example and map model IDs to backend URLs.
+If a routed model emits raw textual tool calls instead of OpenAI `tool_calls`, set `tool_call_parser` on that proxy route. This is a response adapter, separate from `chat_format`.
 
 ## Add models (GGUF only)
 
@@ -87,6 +88,7 @@ Models must be **GGUF** files placed in `models/`.
 For sharded GGUF (e.g., `*-00001-of-00003.gguf`), place all shards in a subfolder under `models/`. The CLI will show the folder as a single “sharded” option and pick the `00001` shard automatically.
 If shards are placed directly in `models/`, the CLI will still group them, but it will warn and recommend moving them into a subfolder to avoid clutter and accidental selection errors.
 If a model emits raw `<|channel|>` / `<|assistant|>` markers, set `chat_format` per instance in `config/models.yaml` to the correct template for that GGUF. If `chat_format` is omitted, llama-cpp uses its default/auto behavior.
+For OpenAI-style tool calling, use a tool-capable `chat_format` and provide any tokenizer settings that handler needs. `functionary-v1` / `functionary-v2` require `hf_pretrained_model_name_or_path`, `hf-tokenizer-config` requires `hf_tokenizer_config_path`, and `hf_model_repo_id` can be used when the handler needs to fetch assets from Hugging Face.
 `no_mmap: true` passes `--use_mmap false`, and `flash_attn: true` passes `--flash_attn true`.
 `disable_metal: true` disables Metal on macOS (useful when the Metal backend crashes or is unavailable).
 
@@ -176,6 +178,15 @@ curl -s http://127.0.0.1:8001/v1/models \
   -H "Authorization: Bearer <USER_KEY>"
 ```
 
+For routed models that need response normalization, `config/proxy_routes.yaml` can declare a parser per model id:
+```yaml
+routes:
+  - model: GPT-oss-120B
+    backend_url: http://127.0.0.1:8003
+    tool_call_parser: channel-tag-tools
+```
+`channel-tag-tools` is meant for models that emit raw `to=functions.NAME` style tool calls with tagged channels. Leave `tool_call_parser` empty for models that already return proper OpenAI `tool_calls`.
+
 Local proxy is still available for development via `./console.sh start-proxy`, but Docker avoids macOS localhost permission issues and keeps DB access consistent.
 
 ## Notes
@@ -227,8 +238,10 @@ instances:
 routes:
   - model: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
     backend_url: http://127.0.0.1:8002
-  - model: openai_gpt-oss-20b-Q4_K_M.gguf
+    tool_call_parser: ""
+  - model: GPT-oss-120B
     backend_url: http://127.0.0.1:8003
+    tool_call_parser: channel-tag-tools
 ```
 
 ## OpenAI API parameter support (chat/completions)
@@ -254,8 +267,8 @@ This server uses `llama_cpp.server` and primarily targets `/v1/chat/completions`
 | `logit_bias` | Yes | Bias token probabilities. |
 | `logprobs` / `top_logprobs` | Yes | Logprobs support. |
 | `response_format` | Yes* | JSON/JSON schema supported by llama-cpp-python; model-dependent. citeturn6search8 |
-| `functions` / `function_call` | Yes* | Requires function-calling models and chat_format (e.g., functionary). citeturn7view0 |
-| `tools` / `tool_choice` | Yes* | Same requirement as functions. citeturn11view0turn7view0 |
+| `functions` / `function_call` | Yes* | Requires function-calling models and chat_format (e.g., functionary). Some handlers also need tokenizer settings in `config/models.yaml`. citeturn7view0 |
+| `tools` / `tool_choice` | Yes* | Same requirement as functions. The server returns tool calls in OpenAI format; your client executes the tool and sends the tool result back. citeturn11view0turn7view0 |
 
 *If a feature depends on a specific model/chat format, the server may accept the parameter but ignore it.*
 

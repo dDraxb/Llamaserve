@@ -13,7 +13,10 @@ from psycopg2 import pool
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from tool_call_adapter import normalize_chat_completion
+try:
+    from .tool_call_adapter import normalize_chat_completion
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    from tool_call_adapter import normalize_chat_completion
 
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -109,6 +112,7 @@ def _load_routes() -> Dict[str, Dict[str, str]]:
                      parsed.path, parsed.params, parsed.query, parsed.fragment)
                 )
             routes[model] = {
+                "public_model": model,
                 "backend_url": url,
                 "tool_call_parser": (item.get("tool_call_parser") or "").strip(),
             }
@@ -276,11 +280,12 @@ async def proxy(path: str, request: Request):
                         )
                         if resp.status_code == 200:
                             payload = resp.json()
-                            for item in payload.get("data", []):
-                                model_id = item.get("id")
-                                if model_id and model_id not in seen:
-                                    seen.add(model_id)
-                                    data.append(item)
+                            backend_items = payload.get("data", [])
+                            if backend_items and route_model not in seen:
+                                item = dict(backend_items[0])
+                                item["id"] = route_config.get("public_model") or route_model
+                                seen.add(item["id"])
+                                data.append(item)
                     except Exception:
                         continue
                 return {"object": "list", "data": data}

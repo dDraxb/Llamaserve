@@ -4,4 +4,4 @@ routes:
     tool_call_parser: ""
   - model: openai_gpt-oss-20b-Q4_K_M.gguf
     backend_url: http://127.0.0.1:8003
-    tool_call_parser: ""
+    tool_call_parser: "channel-tag-tools"

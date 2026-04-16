@@ -1,6 +1,7 @@
 models:
   - name: gpu0_tinyllama
     model: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+    model_alias: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
     host: 127.0.0.1
     port: 8002
     cuda_visible_devices: "0"
@@ -16,6 +17,7 @@ models:
 
   - name: gpu1_gptoss
     model: openai_gpt-oss-20b-Q4_K_M.gguf
+    model_alias: GPT-oss-120B
     host: 127.0.0.1
     port: 8003
     cuda_visible_devices: "1"

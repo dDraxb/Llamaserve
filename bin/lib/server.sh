@@ -151,19 +151,20 @@ repair_instance_pid() {
 start_instance() {
   local name="$1"
   local model_input="$2"
-  local host="$3"
-  local port="$4"
-  local gpus="$5"
-  local n_ctx="$6"
-  local n_gpu_layers="$7"
-  local api_key="$8"
-  local chat_format="$9"
-  local no_mmap="${10:-}"
-  local flash_attn="${11:-}"
-  local disable_metal="${12:-}"
-  local hf_pretrained_model_name_or_path="${13:-}"
-  local hf_tokenizer_config_path="${14:-}"
-  local hf_model_repo_id="${15:-}"
+  local model_alias_input="$3"
+  local host="$4"
+  local port="$5"
+  local gpus="$6"
+  local n_ctx="$7"
+  local n_gpu_layers="$8"
+  local api_key="$9"
+  local chat_format="${10:-}"
+  local no_mmap="${11:-}"
+  local flash_attn="${12:-}"
+  local disable_metal="${13:-}"
+  local hf_pretrained_model_name_or_path="${14:-}"
+  local hf_tokenizer_config_path="${15:-}"
+  local hf_model_repo_id="${16:-}"
 
   mkdir -p "$INSTANCES_DIR" "$LLAMA_SERVER_LOG_DIR"
 
@@ -174,6 +175,8 @@ start_instance() {
 
   local model_path
   model_path="$(resolve_model_path "$model_input")"
+  local model_alias
+  model_alias="${model_alias_input:-$(basename "$model_path")}"
   warn_large_model "$model_path" "$n_gpu_layers" "$gpus"
 
   local log_file
@@ -251,6 +254,7 @@ start_instance() {
   local -a server_cmd=(
     "$PYTHON_BIN" -m llama_cpp.server
     --model "$model_path"
+    --model_alias "$model_alias"
     --host "$effective_host"
     --port "$effective_port"
     --n_ctx "$effective_n_ctx"
@@ -281,20 +285,30 @@ start_instance() {
     env_cmd+=(GGML_METAL=0 LLAMA_METAL=0)
   fi
 
-  if [[ "${#env_cmd[@]}" -gt 0 ]]; then
-    env "${env_cmd[@]}" "${clean_cmd[@]}" >>"$log_file" 2>&1 &
+  local -a launch_prefix=()
+  if command -v setsid >/dev/null 2>&1; then
+    launch_prefix=(setsid)
   else
-    "${clean_cmd[@]}" >>"$log_file" 2>&1 &
+    launch_prefix=(nohup)
   fi
 
-  echo $! > "$(instance_pid_file "$name")"
+  if [[ "${#env_cmd[@]}" -gt 0 ]]; then
+    "${launch_prefix[@]}" env "${env_cmd[@]}" "${clean_cmd[@]}" >>"$log_file" 2>&1 < /dev/null &
+  else
+    "${launch_prefix[@]}" "${clean_cmd[@]}" >>"$log_file" 2>&1 < /dev/null &
+  fi
+
+  local started_pid="$!"
+  disown "$started_pid" 2>/dev/null || true
+
+  echo "$started_pid" > "$(instance_pid_file "$name")"
   echo "$model_path" > "$(instance_model_file "$name")"
   info "Instance [$name] started with PID $(cat "$(instance_pid_file "$name")")"
 
-  local started_pid
-  started_pid="$(cat "$(instance_pid_file "$name")")"
   local attempts=0
-  while [[ "$attempts" -lt 12 ]]; do
+  local max_start_wait_secs="${LLAMA_MULTI_START_WAIT_SECS:-90}"
+  local max_attempts=$(( max_start_wait_secs * 4 ))
+  while [[ "$attempts" -lt "$max_attempts" ]]; do
     if ! kill -0 "$started_pid" 2>/dev/null; then
       break
     fi
@@ -363,6 +377,7 @@ for inst in instances:
     if not name:
         continue
     model = get_value(inst, "model")
+    model_alias = get_value(inst, "model_alias")
     host = get_value(inst, "host")
     port = get_value(inst, "port")
     gpus = get_value(inst, "cuda_visible_devices")
@@ -381,6 +396,7 @@ for inst in instances:
     print("|".join([
         name,
         model,
+        model_alias,
         host,
         port,
         gpus,
@@ -435,7 +451,7 @@ start_multi() {
     echo "Available models:"
     local i
     for i in "${!entries[@]}"; do
-      IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"${entries[$i]}"
+      IFS='|' read -r name model model_alias host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"${entries[$i]}"
       printf "  [%d] %s (%s)\n" "$((i + 1))" "$name" "$(basename "$model")"
     done
     while true; do
@@ -475,12 +491,12 @@ start_multi() {
       done
       [[ "$found" -eq 1 ]] || continue
     fi
-    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"${entries[$((idx - 1))]}"
+    IFS='|' read -r name model model_alias host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"${entries[$((idx - 1))]}"
     if is_instance_running "$name"; then
       err "Instance already running, skipping: $name"
       continue
     fi
-    start_instance "$name" "$model" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key" "$chat_format" "$no_mmap" "$flash_attn" "$disable_metal" "$hf_pretrained_model_name_or_path" "$hf_tokenizer_config_path" "$hf_model_repo_id"
+    start_instance "$name" "$model" "$model_alias" "$host" "$port" "$gpus" "$n_ctx" "$n_gpu_layers" "$api_key" "$chat_format" "$no_mmap" "$flash_attn" "$disable_metal" "$hf_pretrained_model_name_or_path" "$hf_tokenizer_config_path" "$hf_model_repo_id"
   done
 }
 

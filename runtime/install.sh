@@ -315,6 +315,24 @@ if [[ ! -x "$PY_BIN" ]]; then
   PY_BIN="$VENV_BIN/python.exe"
 fi
 
+if [[ ! -x "$PIP_BIN" || ! -x "$PY_BIN" ]]; then
+  echo ">>> Existing virtualenv is incomplete; recreating $VENV_DIR"
+  rm -rf "$VENV_DIR"
+  "$PYTHON_BOOTSTRAP_BIN" -m venv "$VENV_DIR"
+  VENV_BIN="$VENV_DIR/bin"
+  if [[ ! -d "$VENV_BIN" ]]; then
+    VENV_BIN="$VENV_DIR/Scripts"
+  fi
+  PIP_BIN="$VENV_BIN/pip"
+  PY_BIN="$VENV_BIN/python"
+  if [[ ! -x "$PIP_BIN" ]]; then
+    PIP_BIN="$VENV_BIN/pip.exe"
+  fi
+  if [[ ! -x "$PY_BIN" ]]; then
+    PY_BIN="$VENV_BIN/python.exe"
+  fi
+fi
+
 echo ">>> Upgrading pip and installing dependencies inside venv"
 "$PIP_BIN" install --upgrade pip
 LLAMA_CPP_SPEC="llama-cpp-python[server]"

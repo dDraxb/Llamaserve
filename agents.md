@@ -108,4 +108,6 @@ Proxy routing for multi-model: map model IDs to backends in `config/proxy_routes
 
 Supported chat parameters (llama-cpp-python API exposure): `model`, `messages`, `stream`, `temperature`, `top_p`, `top_k`, `min_p`, `typical_p`, `stop`, `max_tokens`, `presence_penalty`, `frequency_penalty`, `repeat_penalty`, `seed`, `logit_bias`, `logprobs`, `top_logprobs`, `response_format`, `functions`/`function_call`, `tools`/`tool_choice` (model/chat_format-dependent). citeturn11view0turn7view0
 
+`response_format` accepts the OpenAI `{type: "json_schema", json_schema: {schema: ...}}` form in addition to `text` and `json_object`. The proxy translates the schema to a GBNF grammar (via `runtime/json_schema_to_grammar.py`, vendored from llama.cpp) and forwards it as the `grammar` field, which `llama.cpp` enforces at the token-decoding level. Malformed schemas soft-fail (the original body is forwarded unchanged and the backend's normal error path responds).
+
 Platform support: macOS/Linux on Python 3.11/3.12, and Windows via WSL2 (native Git Bash/MSYS/Cygwin is not supported).

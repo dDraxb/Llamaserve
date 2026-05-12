@@ -18,6 +18,11 @@ try:
 except ImportError:  # pragma: no cover - fallback for direct script execution
     from tool_call_adapter import normalize_chat_completion
 
+try:
+    from .response_format_rewriter import rewrite_body_for_json_schema
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    from response_format_rewriter import rewrite_body_for_json_schema
+
 HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -298,6 +303,20 @@ async def proxy(path: str, request: Request):
                     url = f"{route_config['backend_url'].rstrip('/')}/{path}"
             except Exception:
                 pass
+
+    # Translate OpenAI `response_format: json_schema` to a GBNF `grammar`
+    # field so `llama_cpp.server` (which only accepts text|json_object)
+    # still enforces the schema at the token level.
+    if path == "v1/chat/completions" and request_payload:
+        new_payload, note = rewrite_body_for_json_schema(request_payload)
+        if note:
+            # Soft failure — leave the original body untouched and let the
+            # backend respond with whatever error it sees fit.
+            pass
+        elif new_payload is not request_payload:
+            request_payload = new_payload
+            body = json.dumps(request_payload).encode("utf-8")
+            request_bytes = len(body)
 
     if _rate_limited(username):
         _log_request(

@@ -2,6 +2,16 @@
 
 All notable changes to this project.
 
+## 2026-05-12
+
+### Added
+- Proxy-side translation of OpenAI `response_format: {type: "json_schema", json_schema: {schema: ...}}` into a `grammar` field via vendored `runtime/json_schema_to_grammar.py` (MIT, from `ggml-org/llama.cpp`). The backend (`llama_cpp.server`) only accepts `text` / `json_object` for `response_format.type`; the proxy now converts strict JSON Schema to GBNF and forwards it as the `grammar` parameter, which `llama.cpp` enforces at the token-decoding level (a stricter guarantee than OpenAI's post-hoc compliance).
+- `runtime/response_format_rewriter.py` — wrapper around the vendored converter; soft-fails on malformed schemas so a bad client request never 500s the proxy.
+- `bin/test_response_format_rewriter.py` — stand-alone unit checks for the rewriter (no backend or DB required).
+
+### Changed
+- `runtime/auth_proxy.py` rewrites the request body for `POST /v1/chat/completions` when `response_format.type == "json_schema"`: drops the new type, sets `response_format` to `{"type": "json_object"}` for backend compatibility, and adds a `grammar` field with the GBNF compiled from the schema.
+
 ## 2026-04-15
 
 ### Added

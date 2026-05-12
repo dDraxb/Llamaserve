@@ -118,12 +118,17 @@ PY
 
 is_instance_running() {
   local name="$1"
+  local port="${2:-}"
   local pid_file
   pid_file="$(instance_pid_file "$name")"
   if [[ -f "$pid_file" ]]; then
     local pid
     pid="$(cat "$pid_file" 2>/dev/null || true)"
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && is_llama_process "$pid"; then
+      if [[ -n "$port" ]] && ! is_pid_listening_on_port "$pid" "$port"; then
+        rm -f "$pid_file"
+        return 1
+      fi
       return 0
     else
       rm -f "$pid_file"
@@ -525,12 +530,12 @@ status_multi() {
   echo "Mode : multi"
   if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
     local entry
-  while IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id; do
+    while IFS='|' read -r name model model_alias host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id; do
       local effective_port="${port:-$LLAMA_SERVER_PORT}"
-      if ! is_instance_running "$name" && [[ "$strict" -eq 0 ]]; then
+      if ! is_instance_running "$name" "$effective_port" && [[ "$strict" -eq 0 ]]; then
         repair_instance_pid "$name" "$effective_port" || true
       fi
-      if is_instance_running "$name"; then
+      if is_instance_running "$name" "$effective_port"; then
         local pid
         pid="$(cat "$(instance_pid_file "$name")")"
         local model_path="(unknown)"
@@ -540,11 +545,13 @@ status_multi() {
         local log_file
         log_file="$(instance_log_file "$name")"
         local effective_host="${host:-$LLAMA_SERVER_HOST}"
+        local effective_model_alias="${model_alias:-$(basename "$model_path")}"
         echo "Instance [$name]: RUNNING"
         echo "  PID   : $pid"
         echo "  Bind  : $effective_host"
         echo "  Port  : $effective_port"
         echo "  URL   : $(client_url_for_bind "$effective_host" "$effective_port")"
+        echo "  Alias : $effective_model_alias"
         echo "  Model : $model_path"
         echo "  Log   : $log_file"
       else

@@ -140,6 +140,17 @@ is_server_running() {
 
 
 has_running_instances() {
+  if [[ -f "$LLAMA_MULTI_CONFIG" ]]; then
+    local entry
+    while IFS='|' read -r name _model _model_alias _host port _rest; do
+      local effective_port="${port:-$LLAMA_SERVER_PORT}"
+      if is_instance_running "$name" "$effective_port"; then
+        return 0
+      fi
+    done < <(parse_multi_config)
+    return 1
+  fi
+
   if [[ ! -d "$INSTANCES_DIR" ]]; then
     return 1
   fi

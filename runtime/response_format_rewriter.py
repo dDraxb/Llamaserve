@@ -72,8 +72,12 @@ def rewrite_body_for_json_schema(payload: Dict[str, Any]) -> Tuple[Dict[str, Any
     new_payload = dict(payload)
     if "grammar" not in new_payload or not new_payload.get("grammar"):
         new_payload["grammar"] = grammar
-    # Replace response_format with json_object so llama_cpp.server's
-    # pydantic literal accepts it. The actual structural enforcement is
-    # done by `grammar` at the token level.
-    new_payload["response_format"] = {"type": "json_object"}
+    # CRITICAL: drop response_format entirely. If we left it as json_object,
+    # llama_cpp.llama_chat_format would override our schema-derived grammar
+    # with its built-in loose JSON_GBNF (which accepts ANY JSON object), so
+    # the schema would not actually be enforced.
+    # See llama_chat_format.py: `if response_format["type"] == "json_object"
+    # then grammar = _grammar_for_response_format(...)` overwrites the
+    # user-supplied grammar.
+    new_payload.pop("response_format", None)
     return new_payload, ""

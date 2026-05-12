@@ -63,7 +63,7 @@ def test_passthrough_when_no_response_format() -> None:
     assert_eq("no-rf: dict identity preserved", new is payload, True)
 
 
-def test_rewrite_replaces_type_and_adds_grammar() -> None:
+def test_rewrite_drops_response_format_and_adds_grammar() -> None:
     payload = {
         "model": "x",
         "response_format": {
@@ -79,7 +79,7 @@ def test_rewrite_replaces_type_and_adds_grammar() -> None:
         payload["response_format"]["type"],
         "json_schema",
     )
-    assert_eq("rewrite: new response_format", new["response_format"], {"type": "json_object"})
+    assert_eq("rewrite: response_format removed", "response_format" in new, False)
     assert_contains("rewrite: grammar present", new["grammar"], "root ::=")
 
 
@@ -94,7 +94,7 @@ def test_existing_grammar_is_preserved() -> None:
     }
     new, note = rewrite_body_for_json_schema(payload)
     assert_eq("preserve: grammar untouched", new["grammar"], "root ::= \"hello\"")
-    assert_eq("preserve: response_format swapped", new["response_format"], {"type": "json_object"})
+    assert_eq("preserve: response_format removed", "response_format" in new, False)
 
 
 def test_missing_schema_is_soft_failure() -> None:
@@ -128,7 +128,7 @@ if __name__ == "__main__":
     test_compile_emits_root_rule()
     test_passthrough_when_not_json_schema()
     test_passthrough_when_no_response_format()
-    test_rewrite_replaces_type_and_adds_grammar()
+    test_rewrite_drops_response_format_and_adds_grammar()
     test_existing_grammar_is_preserved()
     test_missing_schema_is_soft_failure()
     test_invalid_schema_does_not_raise()

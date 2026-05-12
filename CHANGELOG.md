@@ -10,7 +10,10 @@ All notable changes to this project.
 - `bin/test_response_format_rewriter.py` — stand-alone unit checks for the rewriter (no backend or DB required).
 
 ### Changed
-- `runtime/auth_proxy.py` rewrites the request body for `POST /v1/chat/completions` when `response_format.type == "json_schema"`: drops the new type, sets `response_format` to `{"type": "json_object"}` for backend compatibility, and adds a `grammar` field with the GBNF compiled from the schema.
+- `runtime/auth_proxy.py` rewrites the request body for `POST /v1/chat/completions` when `response_format.type == "json_schema"`: removes `response_format` from the forwarded body entirely (NOT swap to `json_object` — see fix note) and adds a `grammar` field with the GBNF compiled from the schema.
+
+### Fixed
+- Initial implementation set `response_format` to `{"type": "json_object"}` after attaching the grammar. `llama_cpp.llama_chat_format` then overrode our schema-derived grammar with its built-in loose `JSON_GBNF` (any-JSON-object), so structural constraints were not actually enforced. The rewriter now removes `response_format` entirely when grammar is attached; the grammar alone gives strict token-level enforcement.
 
 ## 2026-04-15
 

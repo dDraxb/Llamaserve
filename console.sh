@@ -379,7 +379,7 @@ start_server() {
   if [[ -n "$model_arg" ]] && [[ "${#catalog_entries[@]}" -gt 0 ]]; then
     local entry
     for entry in "${catalog_entries[@]}"; do
-      IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"$entry"
+      IFS='|' read -r name model model_alias host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"$entry"
       if [[ "$model_arg" == "$name" ]] || [[ "$model_arg" == "$model" ]] || [[ "$model_arg" == "$(basename "$model")" ]]; then
         selected_entry="$entry"
         break
@@ -394,7 +394,7 @@ start_server() {
       echo "Available models:"
       local i
       for i in "${!catalog_entries[@]}"; do
-        IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"${catalog_entries[$i]}"
+        IFS='|' read -r name model model_alias host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"${catalog_entries[$i]}"
         printf "  [%d] %s (%s)\n" "$((i + 1))" "$name" "$(basename "$model")"
       done
       local choice
@@ -422,7 +422,7 @@ start_server() {
   if [[ -z "$model_arg" ]] && [[ "${#catalog_entries[@]}" -eq 0 ]]; then
     model_path="$(select_model_interactively)"
   elif [[ -n "$selected_entry" ]]; then
-    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"$selected_entry"
+    IFS='|' read -r name model model_alias host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"$selected_entry"
     model_path="$(resolve_model_path "$model")"
   else
     model_path="$(resolve_model_path "$model_arg")"
@@ -447,10 +447,12 @@ start_server() {
   local effective_hf_tokenizer_config_path="$LLAMA_SERVER_HF_TOKENIZER_CONFIG_PATH"
   local effective_hf_model_repo_id="$LLAMA_SERVER_HF_MODEL_REPO_ID"
   local raw_hf_tokenizer_config_path="$LLAMA_SERVER_HF_TOKENIZER_CONFIG_PATH"
+  local effective_model_alias=""
 
   if [[ -n "$selected_entry" ]]; then
-    IFS='|' read -r name model host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"$selected_entry"
+    IFS='|' read -r name model model_alias host port gpus n_ctx n_gpu_layers api_key chat_format no_mmap flash_attn disable_metal hf_pretrained_model_name_or_path hf_tokenizer_config_path hf_model_repo_id <<<"$selected_entry"
     model_path="$(resolve_model_path "$model")"
+    [[ -n "$model_alias" ]] && effective_model_alias="$model_alias"
     [[ -n "$host" ]] && effective_host="$host"
     [[ -n "$port" ]] && effective_port="$port"
     [[ -n "$n_ctx" ]] && effective_n_ctx="$n_ctx"
@@ -506,6 +508,9 @@ start_server() {
   fi
   if [[ -n "$effective_hf_model_repo_id" ]]; then
     chat_format_args+=(--hf_model_repo_id "$effective_hf_model_repo_id")
+  fi
+  if [[ -n "$effective_model_alias" ]]; then
+    chat_format_args+=(--model_alias "$effective_model_alias")
   fi
 
   if [[ -n "$effective_gpus" ]]; then

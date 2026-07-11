@@ -579,11 +579,14 @@ start_server() {
     attempts=$((attempts + 1))
     sleep 0.25
   done
-  if ! kill -0 "$started_pid" 2>/dev/null || ! is_pid_listening_on_port "$started_pid" "$LLAMA_SERVER_PORT"; then
+  if ! kill -0 "$started_pid" 2>/dev/null; then
     err "Server exited early. Check log: $LOG_FILE"
     tail -n 20 "$LOG_FILE" >&2 || true
     rm -f "$LLAMA_SERVER_PID_FILE"
     return 1
+  fi
+  if ! is_pid_listening_on_port "$started_pid" "$LLAMA_SERVER_PORT"; then
+    info "Server is still loading the model; not yet listening on port $LLAMA_SERVER_PORT. Check log: $LOG_FILE"
   fi
 
   if [[ "$LLAMA_PROXY_ENABLED" == "1" ]]; then
